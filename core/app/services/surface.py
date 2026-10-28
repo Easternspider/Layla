@@ -17,11 +17,17 @@ from urllib.request import Request, urlopen
 
 class Links(HTMLParser):
     def __init__(self):
-        super().__init__(); self.hrefs=[]; self.scripts=[]; self.fields=[]
+        super().__init__(); self.hrefs=[]; self.scripts=[]; self.fields=[]; self.posts=[]
     def handle_starttag(self, tag, attrs):
         d = dict(attrs)
-        if tag in ("a", "form") and d.get("href" if tag == "a" else "action"):
-            self.hrefs.append(d.get("href") or d.get("action"))
+        if tag == "a" and d.get("href"):
+            self.hrefs.append(d["href"])
+        if tag == "form":
+            action = d.get("action") or ""
+            if action:
+                self.hrefs.append(action)
+                if (d.get("method") or "get").lower() == "post":
+                    self.posts.append(action)
         if tag == "script" and d.get("src"):
             self.scripts.append(d["src"])
         if tag in ("input", "textarea", "select") and d.get("name"):
@@ -74,6 +80,10 @@ while queue and len(seen) < 60:
     if parser.fields:
         row["fields"] = parser.fields[:12]
     rows.append(row)
+    for action in parser.posts:
+        posted = urljoin(final, action).split("#")[0]
+        if urlsplit(posted).hostname != host: continue
+        rows.append({"path": (urlsplit(posted).path or "/")[:180], "status": None, "role": ROLE, "method": "POST", "fields": parser.fields[:12]})
     if depth >= 3: continue
     for href in parser.hrefs:
         nxt = urljoin(final, href).split("#")[0]
@@ -91,7 +101,7 @@ print("LAYLA_SURFACE " + json.dumps(rows[:120], ensure_ascii=False))
 '''
 
 _COMPARE = r'''
-import json, ssl
+import hashlib, json, ssl
 from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 
@@ -107,7 +117,7 @@ def jar_header(path):
         return ""
     return "; ".join(pairs)
 
-def status_of(url, cookie):
+def read_of(url, cookie):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9",
@@ -115,22 +125,43 @@ def status_of(url, cookie):
     if cookie: headers["Cookie"] = cookie
     try:
         with urlopen(Request(url, headers=headers), timeout=12) as res:
-            res.read(2000)
-            return res.status
+            body = res.read(8000)
+            return res.status, hashlib.sha256(body).hexdigest()[:16], body.decode("utf-8", "replace")
     except Exception as exc:
-        return getattr(exc, "code", 0) or 0
+        code = getattr(exc, "code", 0) or 0
+        raw = b""
+        if hasattr(exc, "read"):
+            try: raw = exc.read(8000)
+            except Exception: raw = b""
+        return code, hashlib.sha256(raw).hexdigest()[:16] if raw else "", raw.decode("utf-8", "replace")
 
 user, other = jar_header(USER_JAR), jar_header(OTHER_JAR)
 rows = []
-for path in PATHS[:40]:
+for path in PATHS[:80]:
     url = urljoin(BASE, path)
     if urlsplit(url).hostname != urlsplit(BASE).hostname: continue
-    rows.append({"path": path, "anon": status_of(url, ""), "user": status_of(url, user), "other": status_of(url, other)})
+    anon_s, anon_h, anon_b = read_of(url, "")
+    user_s, user_h, user_b = read_of(url, user)
+    other_s, other_h, other_b = read_of(url, other)
+    leak = bool(USER_MARK and USER_MARK in other_b) or bool(OTHER_MARK and OTHER_MARK in user_b)
+    row = {"path": path, "anon": anon_s, "user": user_s, "other": other_s, "hash": {"anon": anon_h, "user": user_h, "other": other_h}}
+    if leak: row["leak"] = True
+    rows.append(row)
 print("LAYLA_SURFACE " + json.dumps(rows, ensure_ascii=False))
 '''
 
 
-def paths_from(content: str) -> tuple[list[str], str, str]:
+_MARK = re.compile(r"^[A-Za-z0-9_.:-]{4,80}$")
+
+
+def marker(value: str) -> str:
+    text = (value or "").strip()
+    if text and not _MARK.fullmatch(text):
+        raise ValueError("Маркер: 4–80 символов, буквы, цифры, точка, двоеточие, _ и -")
+    return text
+
+
+def paths_from(content: str) -> tuple[list[str], str, str, str, str]:
     text = content.strip()
     if text.startswith("{"):
         spec = json.loads(text)
@@ -139,16 +170,28 @@ def paths_from(content: str) -> tuple[list[str], str, str]:
         paths = spec.get("paths") or []
         if not isinstance(paths, list):
             raise ValueError("paths должен быть списком")
-        return [str(item) for item in paths], str(spec.get("user_jar") or ""), str(spec.get("other_jar") or "")
-    return [line.strip() for line in text.splitlines() if line.strip()], "", ""
+        return (
+            [str(item) for item in paths],
+            str(spec.get("user_jar") or ""),
+            str(spec.get("other_jar") or ""),
+            marker(str(spec.get("user_marker") or "")),
+            marker(str(spec.get("other_marker") or "")),
+        )
+    return [line.strip() for line in text.splitlines() if line.strip()], "", "", "", ""
+
+
+def origin(target: str) -> str:
+    raw = target.strip()
+    parsed = urlsplit(raw if "://" in raw else "https://" + raw)
+    if not parsed.hostname or (parsed.scheme and parsed.scheme not in ("http", "https")):
+        raise ValueError("Нужен адрес цели")
+    scheme = parsed.scheme or "https"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{scheme}://{parsed.hostname}{port}/"
 
 
 def host_of(value: str) -> str:
-    raw = value.strip()
-    parsed = urlsplit(raw if "://" in raw else "https://" + raw)
-    if not parsed.hostname:
-        raise ValueError("Нужен адрес цели")
-    return parsed.hostname
+    return urlsplit(origin(value)).hostname or ""
 
 
 def page_url(target: str, url: str) -> str:
@@ -176,7 +219,7 @@ def crawl_command(target: str, url: str, jar: str, role: str) -> str:
     return command(prelude + _CRAWL)
 
 
-def compare_command(target: str, paths: list[str], user_jar: str, other_jar: str) -> str:
+def compare_command(target: str, paths: list[str], user_jar: str, other_jar: str, user_marker: str = "", other_marker: str = "") -> str:
     host = host_of(target)
     clean = []
     for path in paths:
@@ -187,10 +230,12 @@ def compare_command(target: str, paths: list[str], user_jar: str, other_jar: str
     if not clean:
         raise ValueError("compare_roles требует хотя бы один путь")
     prelude = (
-        f"BASE={json.dumps('https://' + host + '/')}\n"
-        f"PATHS={json.dumps(clean[:40])}\n"
+        f"BASE={json.dumps(origin(target))}\n"
+        f"PATHS={json.dumps(clean[:80])}\n"
         f"USER_JAR={json.dumps(jar_path(user_jar))}\n"
         f"OTHER_JAR={json.dumps(jar_path(other_jar))}\n"
+        f"USER_MARK={json.dumps(marker(user_marker))}\n"
+        f"OTHER_MARK={json.dumps(marker(other_marker))}\n"
     )
     return command(prelude + _COMPARE)
 
@@ -203,8 +248,10 @@ def parse_report(output: str) -> list[dict]:
     return []
 
 
-def verdict(path: str, anon, user, other) -> str:
-    """What the three statuses mean. A candidate is not a confirmed finding."""
+def verdict(path: str, anon, user, other, *, leak: bool = False, same_body=None) -> str:
+    """What the three replies mean. A candidate is not a confirmed finding."""
+    if leak:
+        return "idor-candidate"
     if any(code == 0 for code in (anon, user, other) if isinstance(code, int)):
         return "blocked"
     private = {401, 403, 404}
@@ -217,8 +264,17 @@ def verdict(path: str, anon, user, other) -> str:
         return "auth-only"
     present = [code for code in (anon, user, other) if isinstance(code, int)]
     if len(present) >= 2 and len(set(present)) == 1:
+        if same_body is False:
+            return "differs"
         return "same"
     return "found"
+
+
+def _same_body(item: dict):
+    hashes = item.get("hash") if isinstance(item.get("hash"), dict) else {}
+    if hashes.get("user") and hashes.get("other"):
+        return hashes["user"] == hashes["other"]
+    return None
 
 
 def absorb(rows: list[dict]) -> list[dict]:
@@ -234,6 +290,10 @@ def absorb(rows: list[dict]) -> list[dict]:
             for name in ROLES:
                 if isinstance(row.get(name), int):
                     item[name] = row[name]
+            if isinstance(row.get("hash"), dict):
+                item["hash"] = {name: str(row["hash"].get(name) or "")[:16] for name in ROLES}
+            if row.get("leak"):
+                item["leak"] = True
         else:
             role = row.get("role")
             if role in ROLES and isinstance(row.get("status"), int):
@@ -243,5 +303,7 @@ def absorb(rows: list[dict]) -> list[dict]:
             for key in ("fields", "params"):
                 if isinstance(row.get(key), list) and row[key]:
                     item[key] = [str(part)[:40] for part in row[key][:12]]
-        item["verdict"] = verdict(path, item.get("anon"), item.get("user"), item.get("other"))
+            if str(row.get("method") or "").upper() == "POST":
+                item["method"] = "POST"
+        item["verdict"] = verdict(path, item.get("anon"), item.get("user"), item.get("other"), leak=bool(item.get("leak")), same_body=_same_body(item))
     return list(grouped.values())
