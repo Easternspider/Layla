@@ -251,3 +251,68 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 .app-shell .field-input { border-radius: 0 !important; box-shadow: none !important; }
 .app-shell .primary-button { background: #f2f2f2; color: #111; }
 .app-shell .send-button { background: #f2f2f2; color: #111; }
+
+/* Shared domain layout: narrow list left, large detail right, smooth. */
+.domain-columns {
+  gap: 0 !important;
+  padding: 0 !important;
+  height: 100%;
+}
+.domain-list,
+.domain-list.is-chat {
+  width: 260px;
+  border: 0;
+  border-right: 1px solid rgb(255 255 255 / .08);
+  background: #050505;
+  transition: width 180ms ease;
+}
+.domain-detail {
+  border: 0;
+  background: #050505;
+}
+.workspace-toolbar {
+  min-height: 44px;
+  padding: 8px 14px !important;
+  border-bottom: 1px solid rgb(255 255 255 / .08);
+  background: #050505;
+}
+.workspace-toolbar .workspace-title h1 { font-size: 13px; font-weight: 500; }
+.workspace-toolbar .workspace-title p { display: none; }
+.workspace-toolbar > span:first-child { display: none; }
+.segmented-control {
+  border: 1px solid rgb(255 255 255 / .1);
+  background: transparent;
+  border-radius: 0 !important;
+  padding: 0;
+}
+.segmented-control .segment {
+  border-radius: 0 !important;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.segmented-control .segment[aria-pressed="true"] {
+  background: rgb(255 255 255 / .08);
+  box-shadow: inset 0 -1px 0 #fff;
+}
+/* Smooth interactions across domains. */
+.domain-list button,
+.domain-detail button,
+.code-pane button,
+.nav-pill,
+.icon-button,
+.primary-button,
+.secondary-button,
+.send-button {
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
+}
+.domain-list button:hover,
+.code-projects button:hover { background: rgb(255 255 255 / .04); }
+/* Code: keep the same black flat language. */
+.code-workspace { background: #050505; }
+.code-projects,
+.code-editor,
+.code-terminal,
+.code-preview,
+.code-chat {
+  border-radius: 0 !important;
+  border-color: rgb(255 255 255 / .08);
+}
