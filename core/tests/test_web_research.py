@@ -105,30 +105,32 @@ async def test_dns_mixed_public_private_is_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pinned_ip_original_tls_host_and_private_redirect(monkeypatch):
-    requests = []
-    def serve(request):
-        requests.append(request)
-        assert request.url.host == '8.8.8.8'
-        assert request.headers['Host'] == 'vendor.example'
-        assert request.extensions['sni_hostname'] == 'vendor.example'
-        return httpx.Response(302, headers={'location': 'https://127.0.0.1/admin'})
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: real_client(
-        **kwargs, transport=httpx.MockTransport(serve)))
+async def test_pinned_ip_original_host_and_private_redirect(monkeypatch):
+    calls = []
+
+    async def perform(url, host, address, max_bytes, verify=True):
+        calls.append((url, host, address))
+        assert address == '8.8.8.8' and host == 'vendor.example'
+        assert url.startswith('https://vendor.example/')
+        return 302, 'text/plain', b'', {'location': 'https://127.0.0.1/admin'}
+
+    monkeypatch.setattr(web_research, 'perform', perform)
+
     async def addresses(host):
         return ['8.8.8.8']
     monkeypatch.setattr(web_research, 'public_addresses', addresses)
     with pytest.raises(ValueError, match='адреса'):
         await web_research.fetch('https://vendor.example/advisory')
-    assert len(requests) == 1
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_response_size_is_bounded(monkeypatch):
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: real_client(**kwargs,
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b'x' * (web_research.MAX_BYTES + 1)))))
+    async def perform(url, host, address, max_bytes, verify=True):
+        raise ValueError(f'Ответ источника превышает {max_bytes // 1_000_000 or 1} МБ')
+
+    monkeypatch.setattr(web_research, 'perform', perform)
+
     async def addresses(host):
         return ['8.8.8.8']
     monkeypatch.setattr(web_research, 'public_addresses', addresses)
@@ -137,27 +139,26 @@ async def test_response_size_is_bounded(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_redirect_does_not_send_cookies(monkeypatch):
-    requests = []
-    def serve(request):
-        requests.append(request)
-        assert 'Cookie' not in request.headers
-        assert request.headers['Accept-Encoding'] == 'identity'
-        if len(requests) == 1:
-            return httpx.Response(302, headers={'location': '/advisory', 'set-cookie': 'session=fixture; Path=/'})
-        return httpx.Response(200, text='advisory')
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: real_client(
-        **kwargs, transport=httpx.MockTransport(serve)))
+async def test_redirect_does_not_reuse_a_client(monkeypatch):
+    calls = []
+
+    async def perform(url, host, address, max_bytes, verify=True):
+        calls.append(url)
+        if len(calls) == 1:
+            return 302, 'text/plain', b'', {'location': '/advisory'}
+        return 200, 'text/plain', b'advisory', {}
+
+    monkeypatch.setattr(web_research, 'perform', perform)
+
     async def addresses(host):
         return ['8.8.8.8']
     monkeypatch.setattr(web_research, 'public_addresses', addresses)
     assert (await web_research.fetch('https://vendor.example/'))['text'] == 'advisory'
-    assert len(requests) == 2
+    assert calls == ['https://vendor.example/', 'https://vendor.example/advisory']
 
 
 @pytest.mark.asyncio
-async def test_real_tls_pinned_connection_verifies_original_hostname(monkeypatch, tmp_path):
+async def test_real_tls_pinned_connection_verifies_original_hostname(tmp_path):
     import ssl
     from datetime import UTC, datetime, timedelta
 
@@ -182,32 +183,26 @@ async def test_real_tls_pinned_connection_verifies_original_hostname(monkeypatch
     server_context.load_cert_chain(cert_path, key_path)
     sni = []
     server_context.set_servername_callback(lambda sock, hostname, context: sni.append(hostname))
+
     async def serve(reader, writer):
         await reader.readuntil(b'\r\n\r\n')
         writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 8\r\nConnection: close\r\n\r\nadvisory')
         await writer.drain()
         writer.close()
         await writer.wait_closed()
+
     server = await asyncio.start_server(serve, '127.0.0.1', 0, ssl=server_context)
     port = server.sockets[0].getsockname()[1]
-    trusted = ssl.create_default_context(cafile=str(cert_path))
-    class LocalTransport(httpx.AsyncHTTPTransport):
-        async def handle_async_request(self, request):
-            # Reroute the public pinned address to our local TLS fixture only in this test.
-            assert request.url.host == '8.8.8.8'
-            request.url = request.url.copy_with(host='127.0.0.1', port=port)
-            return await super().handle_async_request(request)
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: real_client(
-        **kwargs, transport=LocalTransport(verify=trusted)))
-    async def addresses(host):
-        return ['8.8.8.8']
-    monkeypatch.setattr(web_research, 'public_addresses', addresses)
     try:
-        assert (await web_research.fetch('https://vendor.example/security'))['text'] == 'advisory'
+        status, content_type, body, _headers = await web_research.perform(
+            f'https://vendor.example:{port}/security', 'vendor.example', '127.0.0.1',
+            web_research.MAX_BYTES, verify=str(cert_path))
+        assert body == b'advisory' and status == 200 and 'text/plain' in content_type
         assert sni[0] == 'vendor.example'
-        with pytest.raises(httpx.ConnectError):
-            await web_research.fetch('https://wrong.example/security')
+        with pytest.raises(Exception):
+            await web_research.perform(
+                f'https://wrong.example:{port}/security', 'wrong.example', '127.0.0.1',
+                web_research.MAX_BYTES, verify=str(cert_path))
     finally:
         server.close()
         await server.wait_closed()

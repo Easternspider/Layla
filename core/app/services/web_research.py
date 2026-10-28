@@ -87,39 +87,64 @@ async def public_addresses(host: str) -> list[str]:
     return addresses
 
 
+async def perform(url: str, host: str, address: str, max_bytes: int, *, verify: bool | str = True) -> tuple[int, str, bytes, dict]:
+    """One browser-shaped GET. DNS is pinned to the address already checked as public."""
+    from curl_cffi import CurlOpt
+    from curl_cffi.requests import AsyncSession
+
+    port = urlsplit(url).port or 443
+    options = {
+        CurlOpt.RESOLVE: [f'{host}:{port}:{address}'],
+        CurlOpt.MAXFILESIZE_LARGE: max_bytes,
+    }
+    try:
+        async with AsyncSession(impersonate='chrome', curl_options=options) as session:
+            response = await session.get(
+                url, allow_redirects=False, timeout=12, verify=verify, discard_cookies=True,
+                default_headers=True)
+    except ValueError:
+        raise
+    except Exception as exc:
+        message = str(exc).lower()
+        if 'maximum file size' in message or 'filesize' in message:
+            raise ValueError(f'Ответ источника превышает {max_bytes // 1_000_000 or 1} МБ') from exc
+        raise OSError('источник недоступен') from exc
+    body = response.content
+    if len(body) > max_bytes:
+        raise ValueError(f'Ответ источника превышает {max_bytes // 1_000_000 or 1} МБ')
+    headers = {k.lower(): v for k, v in response.headers.items()}
+    return response.status_code, response.headers.get('content-type', ''), body, headers
+
+
 async def fetch(url: str, blocked: list[str] = (), *, max_bytes: int = MAX_BYTES) -> dict:
-    """Pin the validated IP in the URL; retain original Host and TLS SNI/cert checks."""
-    async with asyncio.timeout(30), httpx.AsyncClient(
-            trust_env=False, follow_redirects=False, timeout=httpx.Timeout(12, connect=8)) as client:
+    """Pin the validated IP; keep the original hostname for TLS and the Host header."""
+    async with asyncio.timeout(30):
         for _ in range(4):
             target, host = validate_url(url, blocked)
             addresses = await public_addresses(host)
             if any(check_target(a, list(blocked), []).allowed for a in addresses):
                 raise ValueError('Адрес источника совпадает с целью engagement')
-            pinned = target.copy_with(host=addresses[0])
-            client.cookies.clear()
-            async with client.stream('GET', pinned, headers={
-                    'Host': host, 'User-Agent': 'Layla/1.0 public-source-research',
-                    'Accept': 'application/json, text/html, text/plain, application/xml',
-                    'Accept-Encoding': 'identity'},
-                    extensions={'sni_hostname': host}) as response:
-                if response.status_code in (301, 302, 303, 307, 308):
-                    location = response.headers.get('location')
-                    if not location:
-                        raise ValueError('Источник вернул redirect без адреса')
-                    url = urljoin(str(target), location)
-                    continue
-                if response.headers.get('content-encoding', 'identity').lower() != 'identity':
-                    raise ValueError('Сжатый ответ источника недоступен; нужен несжатый текст')
-                content = bytearray()
-                async for chunk in response.aiter_bytes():
-                    content.extend(chunk)
-                    if len(content) > max_bytes:
-                        raise ValueError(f'Ответ источника превышает {max_bytes // 1_000_000 or 1} МБ')
-                return {'url': str(target), 'http_status': response.status_code,
-                        'content_type': response.headers.get('content-type', ''),
-                        'text': content.decode('utf-8', errors='replace'), 'checked_at': now()}
+            status, content_type, body, headers = await perform(str(target), host, addresses[0], max_bytes)
+            if status in (301, 302, 303, 307, 308):
+                location = headers.get('location')
+                if not location:
+                    raise ValueError('Источник вернул redirect без адреса')
+                url = urljoin(str(target), location)
+                continue
+            text = body.decode('utf-8', errors='replace')
+            result = {'url': str(target), 'http_status': status, 'content_type': content_type,
+                      'text': text, 'checked_at': now()}
+            if _interstitial(text):
+                result['note'] = 'Страница отдаёт проверку браузера, а не содержимое. Капча так не решается.'
+            return result
     raise ValueError('Слишком много перенаправлений источника')
+
+
+def _interstitial(text: str) -> bool:
+    sample = text[:5000]
+    return any(mark in sample for mark in (
+        'Just a moment', 'cf-browser-verification', 'Attention Required',
+        'Enable JavaScript and cookies', 'cf-challenge'))
 
 
 async def source(url: str, blocked: list[str] = (), *, nvd: bool = False, max_bytes: int = MAX_BYTES) -> dict:
@@ -317,6 +342,8 @@ class PageText(HTMLParser):
 
 async def read_web_page(url: str, blocked: list[str] = ()) -> dict:
     response = await source(url, blocked)
+    if response.get('note') and _interstitial(response.get('text', '')):
+        return {k: v for k, v in response.items() if k != 'text'}
     if response.get('http_status') != 200:
         return {k: v for k, v in response.items() if k != 'text'}
     content_type = response['content_type'].lower()

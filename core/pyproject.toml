@@ -17,6 +17,8 @@ dependencies = [
     "pyjwt>=2.8",
     "python-multipart>=0.0.9",
     "httpx>=0.27",
+    # Браузерный TLS (JA3/HTTP2) для публичных страниц. Не решает капчу.
+    "curl_cffi>=0.10",
     # WebSocket-прокси превью (HMR dev-серверов) к песочнице.
     "websockets>=13",
     # SSH-исполнитель attack box (пентест): подключение к серверу и запуск команд.
