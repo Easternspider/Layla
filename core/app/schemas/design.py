@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -62,7 +61,6 @@ class DesignOut(BaseModel):
     files: list = []
     design_system_ref: str | None = None
     project_id: str | None = None  # проект домена «Код», если макет отдан в разработку
-    updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
