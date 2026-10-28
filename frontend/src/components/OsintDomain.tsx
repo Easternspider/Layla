@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, PanelRight, Plus, RefreshCw, Trash2 } from "lucide-react";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@/lib/api";
 import { ChatPanel } from "@/components/ChatPanel";
 import { confirmAction } from "@/components/ConfirmDialog";
-import { loadPins, useListKeys, WorkRail } from "@/components/WorkRail";
+import { loadPins, folderIds, useListKeys, WorkRail } from "@/components/WorkRail";
 import { useAuth } from "@/store/auth";
 
 const inputStyle = "w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm disabled:opacity-40";
@@ -122,7 +122,7 @@ function Sources({ caseId }: { caseId: string }) {
   </div>;
 }
 
-function CaseWorkspace({ item, onDelete }: { item: OsintCase; onDelete: () => void }) {
+function CaseWorkspace({ item, onDelete, onBusy }: { item: OsintCase; onDelete: () => void; onBusy: (busy: boolean) => void }) {
   const qc = useQueryClient();
   const [tab, setTab] = useState("artifacts");
   const [provider, setProvider] = useState<IntelProviderName>("urlscan");
@@ -150,6 +150,7 @@ function CaseWorkspace({ item, onDelete }: { item: OsintCase; onDelete: () => vo
     e.preventDefault();
     if (target.trim() && !missingKey && !lookup.isPending && !remove.isPending) lookup.mutate();
   }
+  useEffect(() => { onBusy(lookup.isPending); return () => onBusy(false); }, [lookup.isPending, onBusy]);
   return <div className="flex h-full min-w-0 flex-col">
     <div className="shrink-0 space-y-3 border-b border-ink-700 p-4 md:p-5">
       <div className="flex items-start gap-2">
@@ -220,11 +221,11 @@ function CaseWorkspace({ item, onDelete }: { item: OsintCase; onDelete: () => vo
   </div>;
 }
 
-function CasePanel({ id, onDelete }: { id: string; onDelete: () => void }) {
+function CasePanel({ id, onDelete, onBusy }: { id: string; onDelete: () => void; onBusy: (busy: boolean) => void }) {
   const query = useQuery({ queryKey: ["osint", id], queryFn: () => api.get<OsintCase>(`/osint/cases/${id}`) });
   if (query.isPending) return <p className="p-6 text-sm text-neutral-500">Загрузка кейса…</p>;
   if (query.error) return <div className="p-6"><ErrorNotice error={query.error} /></div>;
-  return <CaseWorkspace item={query.data} onDelete={onDelete} />;
+  return <CaseWorkspace item={query.data} onDelete={onDelete} onBusy={onBusy} />;
 }
 
 export function OsintDomain() {
@@ -237,6 +238,8 @@ export function OsintDomain() {
   const [filter, setFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [pins, setPins] = useState<string[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const markBusy = useCallback((id: string, busy: boolean) => setBusyId(current => (busy ? id : current === id ? null : current)), []);
   const [form, setForm] = useState<{ subject: string; subject_type: SubjectType }>({ subject: "", subject_type: "domain" });
   useEffect(() => { setPins(loadPins("layla:osint:pinned")); }, []);
   useEffect(() => { try { localStorage.setItem("layla:osint:pinned", JSON.stringify(pins)); } catch { /* ignore */ } }, [pins]);
@@ -278,22 +281,19 @@ export function OsintDomain() {
     setSelected(id); setMain("case");
     const url = new URL(window.location.href); url.searchParams.set("case", id); window.history.replaceState(null, "", url);
   };
-  useListKeys(ordered.map(item => item.id), selected, openCase, () => setShowCreate(true));
   const working = new Set((jobs.data || []).filter(job => job.domain === "osint").map(job => String(job.result?.case_id || "")));
+  const rows = ordered.map(item => ({
+    id: item.id, title: item.subject, pinned: pins.includes(item.id), working: working.has(item.id) || busyId === item.id,
+    subtitle: `${subjectLabels[item.subject_type]} · ${item.artifact_count}`, updatedAt: item.updated_at || item.created_at,
+  }));
+  useListKeys(folderIds(rows), selected, openCase, () => setShowCreate(true));
   return <div className="flex h-full min-h-0 bg-black text-neutral-200">
-    <WorkRail title="Кейсы" query={q} onQuery={setQ} active={selected} onOpen={openCase} onCreate={() => setShowCreate(v => !v)}
+    <WorkRail title="Кейсы" storageKey="layla:osint:list" railOpen={rail && !!selected && main === "case"} onCloseRail={() => setRail(false)} query={q} onQuery={setQ} active={selected} onOpen={openCase} onCreate={() => setShowCreate(v => !v)}
       empty={query.isPending ? "Загрузка…" : "Кейсов пока нет."}
-      rows={ordered.map(item => ({
-        id: item.id, title: item.subject, pinned: pins.includes(item.id), working: working.has(item.id),
-        subtitle: `${subjectLabels[item.subject_type]} · ${item.artifact_count}`,
-      }))}
+      rows={rows}
       onPin={id => setPins(list => list.includes(id) ? list.filter(value => value !== id) : [...list, id])}
       onCopy={id => { const url = new URL(window.location.href); url.searchParams.set("case", id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}
-      onRename={async id => {
-        const item = cases.find(value => value.id === id); if (!item) return;
-        const subject = window.prompt("Новое имя кейса", item.subject); if (!subject?.trim()) return;
-        rename.mutate({ id, subject: subject.trim() });
-      }}
+      onRename={(id, subject) => rename.mutate({ id, subject })}
       onDelete={async id => {
         const item = cases.find(value => value.id === id);
         if (await confirmAction(`Удалить кейс ${item?.subject || ""}? Материалы и история запросов пропадут.`)) remove.mutate(id);
@@ -324,7 +324,7 @@ export function OsintDomain() {
         <button onClick={() => setRail(v => !v)} disabled={!selected} className="ml-auto text-neutral-500 hover:text-white disabled:opacity-40" aria-label="Материалы"><PanelRight className="h-4 w-4" /></button>
       </div>
       <div className="min-h-0 flex-1">
-        {main === "chat" || !selected ? <ChatPanel domain="osint" /> : <CasePanel key={selected} id={selected} onDelete={() => setSelected(null)} />}
+        {main === "chat" || !selected ? <ChatPanel domain="osint" /> : <CasePanel key={selected} id={selected} onDelete={() => setSelected(null)} onBusy={busy => markBusy(selected, busy)} />}
       </div>
     </main>
     {rail && selected && main === "case" && <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-white/10 lg:flex">

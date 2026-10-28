@@ -21,6 +21,7 @@ import {
   PanelRight,
   Pencil,
   Link2,
+  Check,
 } from "lucide-react";
 import {
   api,
@@ -38,7 +39,7 @@ import { GitPanel } from "@/components/GitPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { confirmAction } from "@/components/ConfirmDialog";
 import { CodeIntelligencePanel } from "@/components/CodeIntelligencePanel";
-import { loadPins, useListKeys, WorkRail } from "@/components/WorkRail";
+import { loadPins, folderIds, useListKeys, WorkRail } from "@/components/WorkRail";
 
 type OpenFile = Omit<FileContent, "sha256"> & { sha256: string | null };
 type Pane = "projects" | "editor" | "chat" | "terminal" | "git" | "preview";
@@ -68,6 +69,8 @@ export function CodeDomain() {
   const [uploadDirectory, setUploadDirectory] = useState("");
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [listQuery, setListQuery] = useState("");
   const [pins, setPins] = useState<string[]>([]);
@@ -119,7 +122,11 @@ export function CodeDomain() {
     return [...list].sort((a, b) => Number(pins.includes(b.id)) - Number(pins.includes(a.id)));
   }, [projects, listQuery, pins]);
   const workingProjects = new Set((jobs.data || []).map(job => String(job.result?.project_id || "")).filter(Boolean));
-  useListKeys(visibleProjects.map(p => p.id), projectId, id => selectProject(id), () => setForm("local"));
+  const codeRows = visibleProjects.map(p => {
+    const job = (jobs.data || []).find(item => item.result?.project_id === p.id);
+    return { id: p.id, title: p.name, subtitle: job?.steps.at(-1)?.text || job?.title || (p.repo_url ? "Git" : "локальный"), working: workingProjects.has(p.id), pinned: pins.includes(p.id), alert: job?.status === "error", updatedAt: job?.updated_at || p.updated_at };
+  });
+  useListKeys(folderIds(codeRows), projectId, id => selectProject(id), () => setForm("local"));
   useEffect(() => { if (pane === "preview") setPreviewOpened(true); }, [pane]);
   useEffect(() => { setPreviewOpened(false); setFilesChanged(0); setUploadNotice(null); setUploadDirectory(""); }, [projectId]);
   useEffect(() => {
@@ -337,19 +344,14 @@ export function CodeDomain() {
 
   return (
     <div className="code-workspace flex h-full min-h-0 bg-black text-neutral-200">
-      <WorkRail title="Проекты" query={listQuery} onQuery={setListQuery} active={projectId} onCreate={() => setForm(form ? null : "local")}
+      <WorkRail title="Проекты" storageKey="layla:code:list" railOpen={filesOpen} onCloseRail={() => setFilesOpen(false)} query={listQuery} onQuery={setListQuery} active={projectId} onCreate={() => setForm(form ? null : "local")}
         empty={loadingProjects ? "Загрузка…" : "Проектов пока нет."}
-        rows={visibleProjects.map(p => {
-          const job = (jobs.data || []).find(item => item.result?.project_id === p.id);
-          return { id: p.id, title: p.name, subtitle: job?.steps.at(-1)?.text || job?.title || (p.repo_url ? "Git" : "локальный"), working: workingProjects.has(p.id), pinned: pins.includes(p.id), alert: job?.status === "error" };
-        })}
+        rows={codeRows}
         onOpen={id => selectProject(id)}
         onPin={id => setPins(list => list.includes(id) ? list.filter(value => value !== id) : [...list, id])}
         onCopy={id => { const url = new URL(window.location.href); url.searchParams.set("project", id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}
-        onRename={async id => {
-          const item = projects.find(p => p.id === id); if (!item) return;
-          const name = window.prompt("Название проекта", item.name); if (!name?.trim()) return;
-          const next = await api.patch<Project>(`/projects/${id}`, { name: name.trim() });
+        onRename={async (id, nextName) => {
+          const next = await api.patch<Project>(`/projects/${id}`, { name: nextName });
           qc.setQueryData<Project[]>(["projects"], old => (old || []).map(p => p.id === next.id ? next : p));
         }}
         onDelete={id => { const item = projects.find(p => p.id === id); if (item) void removeProject(item); }}>
@@ -375,8 +377,13 @@ export function CodeDomain() {
           ] as const).map(([id, label, Icon]) => <button key={id} aria-pressed={pane === id} onClick={() => setPane(id)} className="segment"><Icon className="hidden h-3.5 w-3.5 sm:block" />{label}</button>)}
         </nav>
         <div className="flex items-center gap-1">
-          {project && <button className="text-neutral-500 hover:text-white" aria-label="Переименовать проект" onClick={async () => { const nextName = window.prompt("Название проекта", project.name); if (!nextName?.trim()) return; const next = await api.patch<Project>(`/projects/${project.id}`, { name: nextName.trim() }); qc.setQueryData<Project[]>(["projects"], old => (old || []).map(p => p.id === next.id ? next : p)); }}><Pencil className="h-4 w-4" /></button>}
-          {project && <button className="text-neutral-500 hover:text-white" aria-label="Скопировать ссылку" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("project", project.id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}><Link2 className="h-4 w-4" /></button>}
+          {project && nameDraft !== "" ? (
+            <form onSubmit={async event => { event.preventDefault(); const next = await api.patch<Project>(`/projects/${project.id}`, { name: nameDraft.trim() }); qc.setQueryData<Project[]>(["projects"], old => (old || []).map(p => p.id === next.id ? next : p)); setNameDraft(""); }} className="flex items-center gap-1">
+              <input value={nameDraft} onChange={e => setNameDraft(e.target.value)} aria-label="Название проекта" className="w-36 border border-white/15 bg-black px-2 py-1 text-xs" />
+              <button className="text-xs text-neutral-300" type="submit">OK</button>
+            </form>
+          ) : project && <button className="text-neutral-500 hover:text-white" aria-label="Переименовать проект" onClick={() => setNameDraft(project.name)}><Pencil className="h-4 w-4" /></button>}
+          {project && <button className="text-neutral-500 hover:text-white" aria-label={linkCopied ? "Скопировано" : "Скопировать ссылку"} onClick={() => { const url = new URL(window.location.href); url.searchParams.set("project", project.id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); setLinkCopied(true); window.setTimeout(() => setLinkCopied(false), 1200); }}>{linkCopied ? <Check className="h-4 w-4 text-emerald-300" /> : <Link2 className="h-4 w-4" />}</button>}
           {project && <button className={button} onClick={download} disabled={downloading}><Download className="h-4 w-4" /><span>{downloading ? "Сборка…" : "ZIP"}</span></button>}
           <button onClick={() => setFilesOpen(v => !v)} disabled={!projectId} className="text-neutral-500 hover:text-white disabled:opacity-40" aria-label="Файлы"><PanelRight className="h-4 w-4" /></button>
         </div>

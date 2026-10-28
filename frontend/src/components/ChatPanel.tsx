@@ -60,6 +60,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const [model, setModel] = useState("");
   const [providerId, setProviderId] = useState("");
   const [sending, setSending] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [deciding, setDeciding] = useState(false);
   const modeKey = `layla:mode:${owner}:${domain}`;
@@ -392,7 +393,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       {chatId && renaming === null && <button aria-label="Переименовать чат" title="Переименовать" onClick={() => setRenaming(detail.data?.title || "")} className="icon-button"><Pencil className="h-4 w-4" /></button>}
       {detail.data?.project_id && <button onClick={zip} className="icon-button" aria-label="Скачать файлы чата ZIP"><Download className="h-4 w-4" /></button>}
       {chatId && <button aria-label="Удалить чат" title="Удалить чат" onClick={removeChat} disabled={sending || removing || !ready} className="icon-button hover:bg-red-500/15 hover:text-red-300">{removing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button>}
-      {chatId && <button aria-label="Скопировать ссылку на чат" className="icon-button" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("chat", chatId); if (projectId) url.searchParams.set("project", projectId); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}><Link2 className="h-4 w-4" /></button>}
+      {chatId && <button aria-label={copiedLink ? "Скопировано" : "Скопировать ссылку на чат"} className="icon-button" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("chat", chatId); if (projectId) url.searchParams.set("project", projectId); navigator.clipboard.writeText(url.toString()).catch(() => undefined); setCopiedLink(true); window.setTimeout(() => setCopiedLink(false), 1200); }}>{copiedLink ? <Check className="h-4 w-4 text-emerald-300" /> : <Link2 className="h-4 w-4" />}</button>}
       <button aria-label="Новый чат" onClick={() => select(null)} disabled={sending || !ready} className="icon-button"><Plus className="h-5 w-5" /></button>
     </div>
     <div ref={scroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto p-5">

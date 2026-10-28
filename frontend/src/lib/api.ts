@@ -68,6 +68,7 @@ export interface OsintCase {
   artifact_count: number;
   lookup_count: number;
   created_at: string;
+  updated_at?: string;
 }
 export interface OsintArtifact {
   id: string;
@@ -246,6 +247,7 @@ export interface Project {
   name: string;
   repo_url?: string | null;
   path?: string | null;
+  updated_at?: string | null;
 }
 
 export interface FileNode {
@@ -518,6 +520,7 @@ export interface Design {
   files: DesignFile[];
   design_system_ref?: string | null;
   project_id?: string | null;
+  updated_at?: string | null;
 }
 
 export interface KnowledgeDoc {

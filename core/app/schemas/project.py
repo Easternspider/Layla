@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -42,6 +43,7 @@ class ProjectOut(BaseModel):
     repo_url: str | None = None
     path: str | None = None
     kind: str = "project"  # project | chat_workspace
+    updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

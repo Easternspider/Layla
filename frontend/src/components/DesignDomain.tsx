@@ -5,14 +5,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown, Code2, Columns2, Eye, History, Loader2, Monitor, MousePointerClick, Palette,
-  PanelRight, Smartphone, Sparkles, Tablet, Trash2,
+  PanelRight, Smartphone, Sparkles, Tablet,
 } from "lucide-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { PickBar, PickFrame } from "@/components/PickBar";
 import { pickMessage, type PickedElement } from "@/lib/pick";
 import { DesignBriefForm } from "@/components/DesignBriefForm";
 import { CodeStream, DesignLive, isActive } from "@/components/DesignLive";
-import { loadPins, useListKeys, WorkRail } from "@/components/WorkRail";
+import { loadPins, folderIds, useListKeys, WorkRail } from "@/components/WorkRail";
 import { api, type Chat, type Design, type FileContent, type FileNode, type Job, type ModelInfo, type Project } from "@/lib/api";
 import { DEFAULT_BRIEF, briefPayload, loadBrief, saveBrief, type Brief } from "@/lib/design-brief";
 import { useAuth } from "@/store/auth";
@@ -37,7 +37,6 @@ export function DesignDomain() {
   const [bp, setBp] = useState<keyof typeof BREAKPOINTS>("desktop");
   const [pane, setPane] = useState<"chat" | "result">("chat");
   const [busy, setBusy] = useState(false);
-  const versionsMenu = useRef<HTMLDetailsElement>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [listQuery, setListQuery] = useState("");
   const [pins, setPins] = useState<string[]>([]);
@@ -195,7 +194,6 @@ export function DesignDomain() {
   function choose(next: Source) {
     setSource(next);
     setWatching(false);
-    if (versionsMenu.current) versionsMenu.current.open = false;
   }
   async function clearVersions() {
     if (!designs.length || !(await confirmAction(`Удалить все версии (${designs.length})? Проекты, созданные из них в «Коде», останутся.`))) return;
@@ -204,7 +202,6 @@ export function DesignDomain() {
       await api.del("/designs");
       setSource({ kind: "chat" });
       await qc.invalidateQueries({ queryKey: ["designs"] });
-      if (versionsMenu.current) versionsMenu.current.open = false;
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить версии");
@@ -276,27 +273,29 @@ export function DesignDomain() {
   const visibleDesigns = designs.filter(d => versionLabel(d).toLowerCase().includes(listQuery.trim().toLowerCase()));
   const orderedDesigns = [...visibleDesigns].sort((a, b) => Number(pins.includes(b.id)) - Number(pins.includes(a.id)));
   const activeId = source.kind === "design" ? source.id : "chat-files";
-  useListKeys(["chat-files", ...orderedDesigns.map(d => d.id)], activeId, id => {
+  const designRows = [
+    { id: "chat-files", title: "Файлы чата", subtitle: page?.name || "пока пусто", pinned: pins.includes("chat-files"), updatedAt: live.data ? undefined : null },
+    ...orderedDesigns.map(d => ({
+      id: d.id, title: versionLabel(d), subtitle: d.stack, pinned: pins.includes(d.id), done: !!d.project_id, updatedAt: d.updated_at,
+      working: !!(liveJob.data && isActive(liveJob.data) && String(liveJob.data.result?.design_id || orderedDesigns[0]?.id || "") === d.id),
+    })),
+  ];
+  useListKeys(folderIds(designRows), activeId, id => {
     if (id === "chat-files") { choose({ kind: "chat" }); setChatOpen(true); }
     else choose({ kind: "design", id });
   }, () => { setChatOpen(true); window.dispatchEvent(new CustomEvent("layla:new-chat", { detail: { domain: "design" } })); });
 
   return (
     <div className="flex h-full min-h-0 bg-black text-neutral-200">
-      <WorkRail title="Версии" query={listQuery} onQuery={setListQuery} active={activeId}
+      <WorkRail title="Версии" storageKey="layla:design:list" railOpen={chatOpen} onCloseRail={() => setChatOpen(false)} query={listQuery} onQuery={setListQuery} active={activeId}
         onOpen={id => { if (id === "chat-files") { choose({ kind: "chat" }); setChatOpen(true); } else choose({ kind: "design", id }); }}
         onCreate={() => setBriefOpen(v => !v)}
-        rows={[
-          { id: "chat-files", title: "Файлы чата", subtitle: page?.name || "пока пусто", pinned: pins.includes("chat-files") },
-          ...orderedDesigns.map(d => ({ id: d.id, title: versionLabel(d), subtitle: d.stack, pinned: pins.includes(d.id), working: liveJob.data?.result?.design_id === d.id && isActive(liveJob.data) })),
-        ]}
+        rows={designRows}
         onPin={id => setPins(list => list.includes(id) ? list.filter(value => value !== id) : [...list, id])}
         onCopy={id => { const url = new URL(window.location.href); if (id !== "chat-files") url.searchParams.set("design", id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}
-        onRename={async id => {
+        onRename={async (id, title) => {
           if (id === "chat-files") return;
-          const item = designs.find(d => d.id === id); if (!item) return;
-          const title = window.prompt("Название версии", versionLabel(item)); if (!title?.trim()) return;
-          await api.patch(`/designs/${id}`, { title: title.trim() });
+          await api.patch(`/designs/${id}`, { title });
           await qc.invalidateQueries({ queryKey: ["designs"] });
         }}
         onDelete={id => { if (id !== "chat-files") void removeVersion(id); }}>
@@ -327,35 +326,11 @@ export function DesignDomain() {
                 {isActive(liveJob.data) ? `Генерация · ${Math.round(liveJob.data.progress * 100)}%` : "Последняя генерация"}
               </button>
             )}
-            {/* Версии: выбор для превью и удаление — у каждой своя корзина. */}
-            <details ref={versionsMenu} className="relative min-w-0">
-              <summary aria-label="Версии и источник превью" className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 py-1.5 text-xs [&::-webkit-details-marker]:hidden">
-                <History className="h-3.5 w-3.5 shrink-0 text-accent-300" />
-                <span className="max-w-[14rem] truncate">{showLive ? "Генерация по брифу" : version ? versionLabel(version) : page ? `Файлы чата · ${page.name}` : "Файлы чата"}</span>
-                <span className="shrink-0 text-neutral-500">{designs.length ? `· ${designs.length}` : ""}</span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-              </summary>
-              <div className="absolute left-0 top-full z-20 mt-2 w-72 max-w-[calc(100vw-48px)] rounded-xl border border-ink-600 bg-ink-900 p-1.5 shadow-floating">
-                <button disabled={!page} onClick={() => choose({ kind: "chat" })} className={`block w-full truncate rounded-lg px-2 py-1.5 text-left text-xs disabled:opacity-50 ${!version && !showLive ? "bg-ink-800 text-white" : "hover:bg-ink-800"}`}>
-                  {page ? `Файлы чата · ${page.name}` : "Файлы чата — пока пусто"}
-                </button>
-                <p className="px-2 pb-1 pt-2 text-[11px] uppercase text-neutral-500">Версии по брифу</p>
-                {!designs.length && <p className="px-2 py-1 text-xs text-neutral-500">Пока нет — сгенерируйте по брифу.</p>}
-                <div className="max-h-64 overflow-y-auto">
-                  {designs.map(d => (
-                    <div key={d.id} className={`flex items-center rounded-lg ${version?.id === d.id && !showLive ? "bg-ink-800 text-white" : "hover:bg-ink-800"}`}>
-                      <button onClick={() => choose({ kind: "design", id: d.id })} className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-xs">{versionLabel(d)}</button>
-                      <button onClick={() => removeVersion(d.id)} disabled={busy} aria-label={`Удалить ${versionLabel(d)}`} title="Удалить версию" className="shrink-0 rounded p-1.5 text-neutral-500 hover:bg-red-500/15 hover:text-red-300">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {designs.length > 1 && (
-                  <button onClick={clearVersions} disabled={busy} className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10">Удалить все версии</button>
-                )}
-              </div>
-            </details>
+            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs text-neutral-400">
+              <History className="h-3.5 w-3.5 shrink-0" />
+              <span className="max-w-[14rem] truncate">{showLive ? "Генерация по брифу" : version ? versionLabel(version) : page ? `Файлы чата · ${page.name}` : "Файлы чата"}</span>
+            </span>
+            {designs.length > 1 && <button onClick={clearVersions} disabled={busy} className="px-2 py-1 text-xs text-red-300 hover:bg-red-500/10">Удалить все</button>}
             {view !== "code" && html && !showLive && (
               <button onClick={() => (picking || pickedEl ? stopPicking() : setPicking(true))} aria-pressed={picking || !!pickedEl}
                 title="Нажмите на элемент в превью и опишите, что в нём изменить"
