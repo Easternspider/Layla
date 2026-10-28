@@ -53,7 +53,9 @@ async def test_create_inbox_skips_a_rejected_domain(monkeypatch):
     real = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
     created = await inbox.create_inbox("blocked.test")
-    assert created["address"].endswith("@fresh.test")
+    assert created["domain"] == "fresh.test"
+    again = await inbox.create_inbox()
+    assert again["domain"] == "blocked.test"
 
 
 @pytest.mark.asyncio
