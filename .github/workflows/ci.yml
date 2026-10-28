@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: layla
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: layla_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U layla -d layla_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: core/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      - name: Migrate PostgreSQL
+        run: alembic upgrade head && alembic check
+        env:
+          DATABASE_URL: postgresql+asyncpg://layla:ci-only-password@localhost:5432/layla_test
+          LAYLA_SECRET_KEY: ci-only-encryption-key
+
+  sandbox:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test language servers
+        run: npm install --prefix "$RUNNER_TEMP/layla-lsp" --ignore-scripts --no-audit --no-fund typescript-language-server@4.3.3 typescript@5.7.3
+      # Без root запуск от uid песочницы невозможен — эти тесты пропускаются сами;
+      # проверяются пути, идентификаторы и правила прокси.
+      - run: pytest -q
+        env:
+          LAYLA_TEST_TS_SERVER: ${{ runner.temp }}/layla-lsp/node_modules/.bin/typescript-language-server
+      - name: Verify shell lifecycle with isolated workspace UIDs
+        run: |
+          layla_shell_test_root=$(mktemp -d /var/tmp/layla-shell-ci.XXXXXX)
+          trap 'sudo rm -rf -- "$layla_shell_test_root"' EXIT
+          cp -R layla_sandbox tests pyproject.toml "$layla_shell_test_root/"
+          chmod -R a+rX "$layla_shell_test_root"
+          cd "$layla_shell_test_root"
+          sudo env "PATH=$PATH" PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_changes.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

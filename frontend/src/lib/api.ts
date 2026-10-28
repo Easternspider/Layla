@@ -1,0 +1,730 @@
+// Thin fetch wrapper. All calls are same-origin under /api (Caddy in prod,
+// Next.js rewrites in dev), so session cookies flow automatically.
+const BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    ...init,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (Array.isArray(body.detail)) {
+        detail = body.detail.map((e: { msg?: string }) => e.msg || "Некорректные данные").join("; ");
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+export const api = {
+  get: <T>(p: string) => request<T>(p),
+  post: <T>(p: string, body?: unknown) =>
+    request<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
+  put: <T>(p: string, body?: unknown) =>
+    request<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
+  patch: <T>(p: string, body?: unknown) =>
+    request<T>(p, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
+  del: <T>(p: string, body?: unknown) =>
+    request<T>(p, { method: "DELETE", body: body ? JSON.stringify(body) : undefined }),
+  upload: <T>(p: string, file: File) =>
+    request<T>(p, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: file }),
+};
+
+// ---- OSINT / intelligence (M3) ----
+export type IntelProviderName = "shodan" | "virustotal" | "securitytrails" | "urlscan";
+export interface IntelProvider {
+  provider: IntelProviderName;
+  name: string;
+  docs_url: string;
+  tool_name: string;
+  supports_ip: boolean;
+  key_required: boolean;
+  configured: boolean;
+  key_masked: string | null;
+  passive: boolean;
+}
+export type SubjectType = "person" | "company" | "domain";
+export interface OsintCase {
+  id: string;
+  subject_type: SubjectType;
+  subject: string;
+  artifact_count: number;
+  lookup_count: number;
+  created_at: string;
+}
+export interface OsintArtifact {
+  id: string;
+  provider: string;
+  target: string;
+  kind: string;
+  title: string;
+  summary: string;
+  source_url: string;
+  data: Record<string, unknown>;
+  created_at: string;
+}
+export interface OsintLookup {
+  id: string;
+  provider: IntelProviderName;
+  target: string;
+  status: "ok" | "empty" | "error";
+  artifact_count: number;
+  duplicate_count: number;
+  error_code: string | null;
+  error: string | null;
+  created_at: string;
+}
+export interface OsintSource {
+  provider: string;
+  source_url: string;
+  artifact_count: number;
+}
+
+export interface JobStep {
+  text: string;
+  at?: string | null;
+}
+
+export interface Job {
+  chat_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  id: string;
+  domain: string;
+  kind: string;
+  title: string;
+  status: "queued" | "running" | "done" | "error" | "cancelled";
+  progress: number;
+  reasoning: string;
+  steps: JobStep[];
+  result: Record<string, unknown>;
+  error?: string | null;
+}
+
+export interface EngagementRecord {
+  id: string; kind: string; key: string; title: string; status: string;
+  data: Record<string, unknown>; worker_id?: string | null; updated_at: string;
+}
+export interface EngagementTask {
+  id: string; run_id: string; key: string; task: string; role: string;
+  priority: number; dependencies: string[]; status: string; worker_id?: string | null; result?: string | null;
+}
+export interface EngagementWorkbench {
+  records: EngagementRecord[]; tasks: EngagementTask[];
+  coverage: { total: number; completed: number; blocked: number; skipped: number };
+  recovery: { id: string; role: string; task: string; error?: string; checkpoint: Record<string, unknown> }[];
+}
+
+export interface Me {
+  id: string;
+  email: string;
+  display_name?: string | null;
+  is_admin?: boolean;
+  is_active?: boolean;
+  must_change_password?: boolean;
+}
+
+// ---- Управление пользователями (админ) ----
+export interface AdminUser {
+  id: string;
+  email: string;
+  display_name?: string | null;
+  is_admin: boolean;
+  is_active: boolean;
+  must_change_password: boolean;
+  created_at?: string | null;
+}
+
+export interface AdminUserCreated {
+  user: AdminUser;
+  generated_password?: string | null;
+}
+
+export interface Bootstrap {
+  available: boolean;
+  email?: string | null;
+  password?: string | null;
+}
+
+export interface AppMeta {
+  env: string;
+  is_prod: boolean;
+  domains: string[];
+  https_required: boolean;
+}
+
+// ---- Типы M1 ----
+export interface Persona {
+  id: string;
+  name: string;
+  kind: string;
+  icon?: string | null;
+  color?: string | null;
+  instructions?: string | null;
+  is_builtin: boolean;
+  hitl_required: boolean;
+  allowed_tools?: string[];
+  /** Что подставить в чат при выборе роли. */
+  default_model?: string | null;
+  default_mode?: "auto" | "confirm" | "plan" | null;
+}
+
+export interface ModelInfo {
+  name: string;
+  provider: string;
+  provider_id: string;
+}
+
+export interface Chat {
+  project_id?: string | null;
+  id: string;
+  domain: string;
+  title?: string | null;
+  persona_id?: string | null;
+  model?: string | null;
+  provider_id?: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: string;
+  content: string;
+  reasoning?: string;
+  tools?: ToolEvent[];
+  error?: string | null;
+  meta?: {
+    reasoning?: string; tools?: ToolEvent[]; error?: string | null; mode?: "auto" | "confirm" | "plan" | "review";
+    /** План агента (update_todos). */
+    todos?: { content: string; status: "pending" | "in_progress" | "done" }[];
+    /** Есть контрольная точка: ход можно откатить. */
+    checkpoint?: boolean;
+    rolled_back?: boolean;
+    /** Сводка сжатой истории (role = system). */
+    kind?: "summary";
+    count?: number;
+  };
+}
+
+export interface ChatDetail extends Chat {
+  last_job?: Job | null;
+  messages: ChatMessage[];
+}
+
+export interface ProviderKey {
+  id: string;
+  label?: string | null;
+  status: string;
+  masked: string;
+}
+
+export interface AccountsHealth {
+  profiles: number;
+  active_models: number;
+  oauth_accounts: number;
+  quota_limited: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  repo_url?: string | null;
+  path?: string | null;
+}
+
+export interface FileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  sha256: string;
+}
+
+export interface FileChange {
+  path: string;
+  operation: "create" | "edit" | "delete";
+  diff: string;
+  before_sha256: string | null;
+  after_sha256: string | null;
+}
+
+export interface ToolEvent {
+  id: string;
+  name: string;
+  workspace_id?: string | null;
+  path: string;
+  status: "running" | "pending" | "done" | "error" | "rejected";
+  error?: string;
+  change?: FileChange;
+  /** run_command / run_code: команда (или «язык: файлы»), вывод и итог. */
+  command?: string;
+  output?: string;
+  note?: string;
+  exit_code?: number | null;
+  duration_s?: number;
+  timed_out?: boolean;
+  signal?: string | number | null;
+}
+
+export const RUN_TOOLS = new Set(["run_command", "run_code", "command_changes", "start_preview", "check_preview", "stop_preview"]);
+/** Превью приложения проекта: состояние процесса в песочнице и ссылка для браузера. */
+export type PreviewState = {
+  state: "none" | "starting" | "running" | "no_port" | "exited" | "stopped" | "idle" | "lifetime" | "unavailable" | string;
+  command?: string | null;
+  suggested?: string | null;
+  port?: number | null;
+  started?: number | null;
+  exit_code?: number | null;
+  logs?: string;
+  base?: string;
+  url?: string;
+  error?: string;
+};
+
+export const GIT_TOOLS = new Set(["git_status", "git_log", "git_diff", "git_commit", "git_push"]);
+
+// ---- Git проекта ----
+export interface GitCommit {
+  sha: string;
+  short: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+  stat?: string;
+}
+
+export interface GitStatus {
+  initialized: boolean;
+  branch?: string;
+  upstream?: string | null;
+  ahead?: number;
+  behind?: number;
+  changes?: { path: string; status: "new" | "added" | "modified" | "deleted" | "renamed"; code: string }[];
+  remote?: string | null;
+  remote_host?: string | null;
+  has_token?: boolean;
+  last_commit?: GitCommit | null;
+}
+
+export interface GitCredential {
+  host: string;
+  username?: string | null;
+  masked: string;
+}
+
+/** Разобрать вывод git diff на изменения по файлам — для FileDiff. */
+export function splitGitDiff(text: string): FileChange[] {
+  const out: FileChange[] = [];
+  for (const block of text.split(/^(?=diff --git )/m)) {
+    if (!block.startsWith("diff --git ")) continue;
+    const plus = /^\+\+\+ b\/(.+)$/m.exec(block)?.[1];
+    const minus = /^--- a\/(.+)$/m.exec(block)?.[1];
+    const header = /^diff --git a\/(.+?) b\/(.+)$/m.exec(block);
+    const path = plus || minus || header?.[2] || "?";
+    const operation = /^new file mode/m.test(block) ? "create" : /^deleted file mode/m.test(block) ? "delete" : "edit";
+    const start = block.search(/^@@/m);
+    out.push({ path, operation, diff: start >= 0 ? block.slice(start) : "", before_sha256: null, after_sha256: null });
+  }
+  return out;
+}
+
+// ---- Запуск кода: песочница проекта и Piston ----
+export interface SandboxStatus {
+  sandbox: {
+    available: boolean;
+    tools?: Record<string, string>;
+    shells?: ("bash" | "powershell")[];
+    file_changes?: number;
+    network?: "proxy" | "off";
+    limits?: { max_timeout: number; default_timeout: number; max_output: number; max_parallel: number };
+  };
+  piston: { available: boolean; runtimes: { language: string; version: string; aliases?: string[]; runtime?: string }[] };
+}
+
+export interface PistonPackage {
+  language: string;
+  language_version: string;
+  installed: boolean;
+}
+
+export type RunEvent =
+  | { type: "file_change"; change: FileChange }
+  | { type: "files"; run_id: string; applied: FileChange[]; error?: string; pending_changes?: string }
+  | { type: "info"; data: string }
+  | { type: "output"; data: string }
+  | { type: "error"; data: string }
+  | { type: "exit"; code: number | null; signal: number | null; duration: number; timed_out: boolean; truncated: boolean };
+
+/** Команда в песочнице проекта; события приходят по мере выполнения. */
+export async function runInProject(
+  projectId: string,
+  body: { command: string; timeout?: number; stdin?: string; shell?: string; cwd?: string },
+  onEvent: (event: RunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/projects/${projectId}/run`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, typeof detail.detail === "string" ? detail.detail : `Ошибка ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (frame.startsWith("data:")) onEvent(JSON.parse(frame.slice(5).trim()) as RunEvent);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export interface RunCodeResult {
+  language: string;
+  version: string;
+  exit_code?: number | null;
+  output?: string;
+  signal?: string | null;
+  message?: string;
+  compile?: { exit_code: number | null; output: string };
+  shown?: string;
+}
+
+export async function downloadProject(project: Project): Promise<void> {
+  const res = await fetch(`${BASE}/projects/${project.id}/archive`, { credentials: "include" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.detail || "Не удалось скачать проект");
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${project.name.replace(/[/\\]/g, "-")}.zip`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function downloadCodeWorkspace(chatId: string, workspaceId: string, name: string): Promise<void> {
+  const res = await fetch(`${BASE}/chats/${chatId}/workspaces/${workspaceId}/archive`, { credentials: "include" });
+  if (!res.ok) { const body = await res.json().catch(() => ({})); throw new ApiError(res.status, body.detail || "Не удалось скачать копию"); }
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a"); link.href = url; link.download = `${name}.zip`;
+  document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+interface StreamHandlers {
+  onDelta: (text: string) => void;
+  onReasoning?: (text: string) => void;
+  onDone?: (messageId: string) => void;
+  onError?: (message: string) => void;
+  onTool?: (tool: ToolEvent) => void;
+}
+
+// Стриминг ответа ассистента по SSE. Парсит события `data: {...}`.
+export async function streamChat(
+  chatId: string,
+  content: string,
+  model: string | undefined,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/chats/${chatId}/messages`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, model }),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : `Ошибка ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let finished = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!frame.startsWith("data:")) continue;
+        const evt = JSON.parse(frame.slice(5).trim());
+        if (evt.delta) handlers.onDelta(evt.delta);
+        else if (evt.tool) handlers.onTool?.(evt.tool);
+        else if (evt.reasoning) handlers.onReasoning?.(evt.reasoning);
+        else if (evt.error) handlers.onError?.(evt.error);
+        else if (evt.done) { finished = true; handlers.onDone?.(evt.message_id); }
+      }
+    }
+    if (!finished) throw new Error("Соединение прервано. Проверьте историю перед продолжением.");
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ---- Типы M2 ----
+export interface DesignFile {
+  name: string;
+  content: string;
+  language?: string;
+}
+
+export interface Design {
+  id: string;
+  stack: string;
+  brief: Record<string, unknown>;
+  files: DesignFile[];
+  design_system_ref?: string | null;
+  project_id?: string | null;
+}
+
+export interface KnowledgeDoc {
+  id: string;
+  title: string;
+  source?: string | null;
+  domain?: string | null;
+  chunk_count: number;
+}
+
+export interface SearchHit {
+  chunk_id: string;
+  doc_id: string;
+  ordinal: number;
+  content: string;
+  score: number;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  transport: string;
+  command?: string | null;
+  url?: string | null;
+  enabled: boolean;
+  personas: string[];
+  env_keys: string[];
+}
+
+export interface McpTestResult {
+  ok: boolean;
+  tools: { name: string; description?: string | null }[];
+  error?: string | null;
+}
+
+export interface TelegramConfig {
+  control_enabled: boolean;
+  connected: boolean;
+  bot_username?: string | null;
+  notify_done: boolean;
+  notify_error: boolean;
+  notify_cancelled: boolean;
+  notify_approval: boolean;
+  public_url?: string | null;
+  last_error?: string | null;
+  configured: boolean;
+  enabled: boolean;
+  default_chat_id?: string | null;
+  token_masked?: string | null;
+}
+
+// ---- Типы M4 (Pentest) ----
+export interface PentestScope {
+  allow: string[];
+  deny: string[];
+  confirmed: boolean;
+}
+
+export interface PentestVenue {
+  mode: string;
+  attack_box_id?: string | null;
+  egress_route: string;
+}
+
+export interface Engagement {
+  id: string;
+  target: string;
+  authorized: boolean;
+  offensive_enabled: boolean;
+  status: string;
+  scope?: PentestScope | null;
+  venue?: PentestVenue | null;
+}
+
+export interface Finding {
+  id: string;
+  severity: string;
+  type: string;
+  url?: string | null;
+  method?: string | null;
+  param?: string | null;
+  status: string;
+  source: string;
+  title?: string | null;
+  description?: string | null;
+}
+
+export interface PentestReport {
+  id: string;
+  format: string;
+  sha256_source?: string | null;
+  stats: Record<string, unknown>;
+  status: string;
+}
+
+export interface PentestServer {
+  id: string;
+  host: string;
+  port: number;
+  user: string;
+  status: string;
+  egress_route: string;
+  auth: "key" | "password";
+  has_key: boolean;
+  has_secret: boolean;
+  host_key?: string | null;
+}
+
+// ---- Типы M5 (Agent) ----
+export interface AgentStep {
+  id: string;
+  ordinal: number;
+  role: string;
+  kind: string;
+  status: string;
+  requires_hitl: boolean;
+  target?: string | null;
+  command?: string | null;
+  summary?: string | null;
+  output?: string | null;
+  worker_id?: string | null;
+}
+
+export interface AgentWorker {
+  id: string; run_id: string; job_id: string | null; task: string; role: string; model: string;
+  status: string; rounds: number; result?: string | null; error?: string | null;
+  activity?: string | null; progress?: number; has_reasoning?: boolean; reasoning?: string;
+  messages: { role: string; content: string; kind?: string }[];
+}
+
+export interface AgentRun {
+  id: string;
+  engagement_id?: string | null;
+  task: string;
+  mode: string;
+  model?: string | null;
+  status: string;
+  budget_used: Record<string, unknown>;
+  steps: AgentStep[];
+  workers: AgentWorker[];
+}
+
+export async function downloadWorker(id: string): Promise<void> {
+  const response = await fetch(`${BASE}/agent/workers/${id}/archive`, { credentials: "include" });
+  if (!response.ok) throw new ApiError(response.status, "Не удалось скачать файлы воркера");
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a"); link.href = url; link.download = `worker-${id}.zip`;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export interface AgentConfig {
+  preset: string;
+  role_models: Record<string, string>;
+  budgets: Record<string, number>;
+  diagnostics: Record<string, unknown>;
+  context: Record<string, unknown>;
+}
+
+export interface AcunetixImportResult {
+  engagement_id: string;
+  created: boolean;
+  scope_hosts: string[];
+  stats: Record<string, number>;
+  sha256_source?: string | null;
+  status: string;
+}
+
+export interface ProviderModel {
+  name: string;
+  enabled: boolean;
+  /** Умеет ли модель работать с файлами (инструментами). */
+  tools: boolean;
+  /** Макс. токенов ответа; max_output_manual=false — «Авто» (значение подобрано Layla). */
+  max_output?: number | null;
+  max_output_manual?: boolean;
+  /** Контекст модели в токенах: сколько истории отправлять. */
+  context?: number | null;
+  temperature?: number | null;
+  reasoning_effort?: "low" | "medium" | "high" | null;
+  /** Бюджет размышлений на шаг, токенов: null — «Авто» (6000), 0 — без ограничения. */
+  reasoning_budget?: number | null;
+  /** Параметры, от которых провайдер отказался. */
+  dropped?: string[];
+  /** Только в запросе: забыть подобранное автоматически. */
+  reset?: boolean;
+}
+
+// ---- Корзина ----
+export interface TrashChat {
+  id: string;
+  title?: string | null;
+  domain: string;
+  deleted_at: string;
+  purge_at: string;
+}
+
+export interface TrashProject {
+  id: string;
+  name: string;
+  chats: number;
+  deleted_at: string;
+  purge_at: string;
+}
+
+export interface TrashList {
+  days: number;
+  chats: TrashChat[];
+  projects: TrashProject[];
+}
