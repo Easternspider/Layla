@@ -14,7 +14,7 @@ export function AgentDomain() {
   const [query, setQuery] = useState("");
   const [pins, setPins] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ host: "", port: 22, user: "root", private_key: "" });
+  const [form, setForm] = useState({ host: "", port: 22, user: "root", auth: "key" as "key" | "password", private_key: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPins(loadPins("layla:agent:pinned")); }, []);
   useEffect(() => { try { localStorage.setItem("layla:agent:pinned", JSON.stringify(pins)); } catch { /* ignore */ } }, [pins]);
@@ -38,9 +38,13 @@ export function AgentDomain() {
     },
   });
   const addServer = useMutation({
-    mutationFn: () => api.post("/servers", { ...form, auth: "key" }),
+    mutationFn: () => api.post("/servers", {
+      host: form.host.trim(), port: form.port, user: form.user.trim() || "root", auth: form.auth,
+      private_key: form.auth === "key" ? form.private_key : undefined,
+      password: form.auth === "password" ? form.password : undefined,
+    }),
     onSuccess: () => {
-      setForm({ host: "", port: 22, user: "root", private_key: "" });
+      setForm({ host: "", port: 22, user: "root", auth: "key", private_key: "", password: "" });
       setAdding(false);
       setError(null);
       qc.invalidateQueries({ queryKey: ["servers"] });
@@ -77,14 +81,22 @@ export function AgentDomain() {
           <input aria-label="Пользователь SSH" value={form.user} onChange={event => setForm({ ...form, user: event.target.value })} placeholder="Пользователь" className="w-full rounded-lg bg-black px-2 py-1.5 text-xs" />
           <input aria-label="Порт SSH" type="number" value={form.port} onChange={event => setForm({ ...form, port: Number(event.target.value) })} className="w-20 rounded-lg bg-black px-2 py-1.5 text-xs" />
         </div>
-        <textarea aria-label="Приватный ключ" value={form.private_key} onChange={event => setForm({ ...form, private_key: event.target.value })} placeholder="Приватный ключ" rows={4} className="w-full rounded-lg bg-black px-2 py-1.5 text-xs" />
-        <button disabled={!form.host.trim() || !form.private_key.trim() || addServer.isPending} className="w-full rounded-lg bg-[#0A84FF] py-1.5 text-xs text-white disabled:opacity-40">Сохранить</button>
+        <select aria-label="Способ входа" value={form.auth} onChange={event => setForm({ ...form, auth: event.target.value as "key" | "password", private_key: "", password: "" })} className="w-full rounded-lg bg-black px-2 py-1.5 text-xs">
+          <option value="key">Вход по ключу</option>
+          <option value="password">Вход по паролю</option>
+        </select>
+        {form.auth === "password" ? (
+          <input aria-label="Пароль SSH" type="password" autoComplete="new-password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} placeholder="Пароль SSH" className="w-full rounded-lg bg-black px-2 py-1.5 text-xs" />
+        ) : (
+          <textarea aria-label="Приватный ключ" value={form.private_key} onChange={event => setForm({ ...form, private_key: event.target.value })} placeholder="Приватный ключ" rows={4} className="w-full rounded-lg bg-black px-2 py-1.5 text-xs" />
+        )}
+        <button disabled={!form.host.trim() || (form.auth === "password" ? !form.password.trim() : !form.private_key.trim()) || addServer.isPending} className="w-full rounded-lg bg-[#0A84FF] py-1.5 text-xs text-white disabled:opacity-40">Сохранить</button>
         {error && <p className="text-xs text-red-300">{error}</p>}
       </form>}
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
         {(servers.data || []).map(server => <div key={server.id} className="rounded-xl px-2 py-2 hover:bg-white/[0.04]">
           <p className="truncate text-sm">{server.user}@{server.host}</p>
-          <p className="text-[11px] text-neutral-500">{server.port} · {server.status}</p>
+          <p className="text-[11px] text-neutral-500">{server.port} · {server.auth === "password" ? "пароль" : "ключ"} · {server.status}</p>
         </div>)}
         {!servers.data?.length && <p className="px-2 text-xs text-neutral-500">Добавьте сервер, и агент сможет проверить его и поставить пакеты.</p>}
       </div>
