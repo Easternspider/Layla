@@ -327,7 +327,7 @@ export function OsintDomain() {
         {main === "chat" || !selected ? <ChatPanel domain="osint" /> : <CasePanel key={selected} id={selected} onDelete={() => setSelected(null)} onBusy={busy => markBusy(selected, busy)} />}
       </div>
     </main>
-    {rail && selected && main === "case" && <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-white/10 lg:flex">
+    {rail && selected && main === "case" && <aside className="ios-panel hidden w-72 shrink-0 flex-col overflow-y-auto lg:flex">
       <div className="border-b border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Материалы</div>
       <div className="p-3"><Artifacts caseId={selected} /></div>
     </aside>}

@@ -388,7 +388,7 @@ export function DesignDomain() {
           )}
           {!showLive && <PickBar picking={picking} element={pickedEl} onSend={sendPick} onCancel={stopPicking} busy={pickBusy} />}
       </div>
-      {chatOpen && <aside className="hidden w-[22rem] shrink-0 flex-col border-l border-white/10 lg:flex">
+      {chatOpen && <aside className="ios-panel hidden w-[22rem] shrink-0 flex-col lg:flex">
         <ChatPanel domain="design" onProject={bindProject} onFileChange={refresh} />
       </aside>}
     </div>

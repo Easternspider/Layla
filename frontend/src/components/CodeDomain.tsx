@@ -400,7 +400,7 @@ export function CodeDomain() {
         </div>
       )}
       <div className={`code-panes flex min-h-0 flex-1 gap-4 ${pane === "chat" ? "" : "px-3 pb-3 md:px-5 md:pb-5"}`} data-pane={pane}>
-        <aside className={`${filesOpen ? "flex" : "hidden"} order-last w-72 shrink-0 flex-col overflow-y-auto border-l border-white/10`}>
+        <aside className={`${filesOpen ? "ios-panel flex" : "hidden"} order-last w-72 shrink-0 flex-col overflow-y-auto`}>
           <div className="border-b border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Файлы</div>
           {projectId && (
             <>

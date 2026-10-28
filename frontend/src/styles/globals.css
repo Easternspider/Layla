@@ -26,20 +26,16 @@
 }
 
 @layer components {
-  .app-shell { @apply relative isolate flex h-dvh flex-col overflow-hidden; background: #050505; --domain-light: 220 220 220; }
-  .app-shell[data-domain="osint"] { --domain-light: 142 216 198; }
-  .app-shell[data-domain="pentest"] { --domain-light: 233 171 188; }
-  .app-shell[data-domain="code"] { --domain-light: 187 167 255; }
+  .app-shell { @apply relative isolate flex h-dvh flex-col overflow-hidden bg-black; }
   .app-topbar { @apply relative z-40 mx-auto flex w-full max-w-[1800px] shrink-0 items-center gap-3 px-4 py-3 md:gap-6 md:px-7 md:py-4; }
-  .app-navigation { @apply border border-white/10 bg-black p-0; }
-  .brand-mark { @apply grid h-8 w-8 shrink-0 place-items-center text-sm font-bold text-black; background: #e8e8e8; }
-  .nav-pill { @apply inline-flex min-h-9 items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium text-neutral-400 hover:bg-white/5 hover:text-white; }
-  .nav-pill[aria-current="page"] { @apply text-white bg-white/10; box-shadow: inset 0 -1px 0 #fff; }
-  .nav-pill[aria-current="page"] svg { color: rgb(var(--domain-light)); }
-  .icon-button { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center text-neutral-400 hover:bg-white/5 hover:text-white disabled:opacity-40; }
-  .app-main { @apply min-h-0 min-w-0 flex-1 overflow-hidden border-t border-white/10 bg-black; }
+  .app-navigation { @apply bg-transparent p-0; }
+  .brand-mark { @apply grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-[#0A84FF] text-sm font-bold text-white; }
+  .nav-pill { @apply inline-flex min-h-9 items-center justify-center gap-2 px-3 py-1.5 text-sm font-medium text-neutral-400 hover:text-white; }
+  .nav-pill[aria-current="page"] { @apply text-[#0A84FF]; }
+  .icon-button { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-neutral-400 hover:bg-white/10 hover:text-white disabled:opacity-40; }
+  .app-main { @apply min-h-0 min-w-0 flex-1 overflow-hidden bg-black; }
   .route-view { @apply h-full min-h-0 min-w-0; animation: surface-in 380ms var(--ease-surface) both; }
-  .surface-card { @apply border border-white/10 bg-black p-4; }
+  .surface-card { @apply rounded-2xl bg-[#1c1c1e] p-4; }
   .workspace-toolbar { @apply flex shrink-0 flex-wrap items-center gap-3 px-4 py-4 md:px-7 md:py-5; }
   .workspace-title { @apply min-w-0 flex-1; }
   .workspace-title h1 { @apply truncate text-lg md:text-xl; font-weight: 650; letter-spacing: -.035em; }
@@ -148,7 +144,7 @@
 .engagement-beacon-orbit { position: absolute; inset: 0; border: 1.5px solid currentColor; border-radius: 50%; opacity: .3; }
 .engagement-beacon-core { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 .engagement-beacon[data-active="true"] { color: #7cdbc6; }
-.engagement-beacon[data-active="true"] .engagement-beacon-orbit { border-color: #7cdbc6 transparent #a98cf5 transparent; opacity: 1; box-shadow: 0 0 10px rgb(124 219 198 / .16); animation: engagement-orbit 1.8s linear infinite; }
+.engagement-beacon[data-active="true"] .engagement-beacon-orbit { border-color: #30D158 transparent #0A84FF transparent; opacity: 1; animation: engagement-orbit 1.8s linear infinite; }
 .engagement-beacon[data-active="true"] .engagement-beacon-core { box-shadow: 0 0 8px rgb(124 219 198 / .5); }
 @keyframes engagement-orbit { to { transform: rotate(360deg); } }
 /* Ambient light sits behind translucent panels. */
@@ -168,12 +164,12 @@
 @keyframes aurora-spin { to { transform: rotate(1turn); } }
 @keyframes aurora-grain { to { background-position: 80px 40px; } }
 .settings-sidebar { border: 1px solid rgb(132 146 174 / .12); box-shadow: inset 0 1px 0 rgb(255 255 255 / .04); }
-.settings-sidebar a[aria-current="page"] { background-image: linear-gradient(100deg, rgb(169 140 245 / .08), transparent); box-shadow: inset 2px 0 0 #a98cf5; }
+.settings-sidebar a[aria-current="page"] { background: #0A84FF; color: #fff; }
 .settings-content section { background-image: linear-gradient(135deg, rgb(255 255 255 / .025), transparent 65%); }
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { caret-color: #c2afff; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { caret-color: #0A84FF; }
 input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; }
 summary::marker { color: #8492ae; }
-details[open] > summary::marker { color: #c2afff; }
+details[open] > summary::marker { color: #0A84FF; }
 details[open] > summary { color: #e2e8f5; }
 details[open] > div { animation: surface-in 260ms var(--ease-surface) both; }
 dialog[open] { animation: panel-in 340ms var(--ease-surface) both; box-shadow: -20px 0 80px rgb(0 0 0 / .4), inset 0 1px 0 rgb(255 255 255 / .05); }
@@ -244,236 +240,127 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 /* Only validated critical finding cards get large type in pentest responses. */
 .pentest-prose h1, .pentest-prose h2, .pentest-prose h3, .pentest-prose h4, .pentest-prose h5, .pentest-prose h6 { font-size: inherit; }
 
-/* Square redesign: kill soft rounding and glow across the app. */
-.app-shell .rounded-full,
+/* iPadOS dark: grouped surfaces, system blue for selection, no decorative glow. */
+:root {
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --raised: #2c2c2e;
+  --hover: #3a3a3c;
+  --line: rgb(255 255 255 / .12);
+  --text: #f2f2f7;
+  --muted: #8e8e93;
+  --accent: #0A84FF;
+  --green: #30D158;
+  --red: #FF453A;
+  --orange: #FF9F0A;
+}
+.app-shell,
+.login-shell,
+.settings-layout,
+.app-main,
+.domain-detail,
+.domain-list,
+.code-workspace,
+.settings-content { background: var(--bg) !important; color: var(--text); }
+.aurora-wash, .aurora-light, .aurora-grain { display: none !important; }
+.aurora-backdrop { background: #000 !important; }
+.app-shell .rounded-full { border-radius: 999px !important; }
+.app-shell .rounded,
+.app-shell .rounded-md,
+.app-shell .rounded-lg,
 .app-shell .rounded-xl,
 .app-shell .rounded-2xl,
 .app-shell .rounded-3xl,
-.app-shell .rounded-lg,
-.app-shell .rounded-md,
-.app-shell .rounded { border-radius: 8px !important; }
-.app-shell .primary-button,
-.app-shell .secondary-button,
-.app-shell .send-button,
-.app-shell .suggestion-chip,
-.app-shell .chat-composer,
-.app-shell .chat-bubble,
-.app-shell .field-input { border-radius: 8px !important; box-shadow: none !important; }
-.app-shell .primary-button { background: #f2f2f2; color: #111; }
-.app-shell .send-button { background: #f2f2f2; color: #111; }
-
-/* Shared domain layout: narrow list left, large detail right, smooth. */
-.domain-columns {
-  gap: 0 !important;
-  padding: 0 !important;
-  height: 100%;
-}
-.domain-list,
-.domain-list.is-chat {
-  width: 260px;
-  border: 0;
-  border-right: 1px solid rgb(255 255 255 / .08);
-  background: #050505;
-  transition: width 180ms ease;
-}
-.domain-detail {
-  border: 0;
-  background: #050505;
-}
-.workspace-toolbar {
-  min-height: 44px;
-  padding: 8px 14px !important;
-  border-bottom: 1px solid rgb(255 255 255 / .08);
-  background: #050505;
-}
-.workspace-toolbar .workspace-title h1 { font-size: 13px; font-weight: 500; }
-.workspace-toolbar .workspace-title p { display: none; }
-.workspace-toolbar > span:first-child { display: none; }
-.segmented-control {
-  border: 1px solid rgb(255 255 255 / .1);
-  background: transparent;
-  border-radius: 8px !important;
-  padding: 0;
-}
-.segmented-control .segment {
-  border-radius: 8px !important;
-  transition: background-color 140ms ease, color 140ms ease;
-}
-.segmented-control .segment[aria-pressed="true"] {
-  background: rgb(255 255 255 / .08);
-  box-shadow: inset 0 -1px 0 #fff;
-}
-/* Smooth interactions across domains. */
-.domain-list button,
-.domain-detail button,
-.code-pane button,
-.nav-pill,
-.icon-button,
+.chat-composer,
+.chat-bubble,
+.chat-message,
+.field-input,
 .primary-button,
 .secondary-button,
-.send-button {
-  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
-}
-.domain-list button:hover,
-.code-projects button:hover { background: rgb(255 255 255 / .04); }
-/* Code: keep the same black flat language. */
-.code-workspace { background: #050505; }
+.suggestion-chip,
+.settings-content > div > section,
+.settings-content section,
+.surface-card,
+details,
+dialog,
+[role="dialog"] > div,
+.login-card,
+.login-form,
 .code-projects,
 .code-editor,
 .code-terminal,
 .code-preview,
 .code-chat {
-  border-radius: 8px !important;
-  border-color: rgb(255 255 255 / .08);
-}
-
-/* Design system: layered gray, square, quiet chrome, smooth. */
-:root {
-  --bg: #0b0d10;
-  --surface: #12151a;
-  --hover: #1a1e25;
-  --line: rgb(255 255 255 / .08);
-  --text: #e8eaed;
-  --muted: #8b929c;
-  --accent: #d4d7dc;
-}
-.app-shell,
-.login-shell,
-.settings-layout { background: var(--bg); color: var(--text); }
-.app-shell .app-main,
-.settings-content,
-.domain-detail,
-.domain-list,
-.code-workspace { background: var(--bg); }
-/* Settings sidebar matches domain lists. */
-.settings-sidebar {
-  margin: 0 !important;
-  border-radius: 8px !important;
-  border-right: 1px solid var(--line);
-  background: var(--surface);
-  width: 240px;
-  padding: 8px 0 !important;
-}
-.settings-sidebar a { border-radius: 8px !important; }
-.settings-sidebar a[aria-current="page"] {
-  background: var(--hover);
-  color: var(--text);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-/* Dialogs and overlays. */
-[role="dialog"] > div,
-.login-card,
-.login-form,
-.settings-content > div > section,
-.surface-card,
-.chat-composer,
-.chat-bubble,
-.chat-message {
-  border-radius: 8px !important;
+  border-radius: 16px !important;
   box-shadow: none !important;
-  background: var(--surface);
-  border-color: var(--line);
 }
-[role="dialog"] { background: rgb(0 0 0 / .55); }
-[role="dialog"] > div {
-  border: 1px solid var(--line);
-  padding: 20px;
-}
-/* Inputs and buttons: square, quiet, smooth. */
-input:not([type="checkbox"]):not([type="radio"]),
+.primary-button,
+.send-button { background: var(--accent) !important; color: #fff !important; }
+.send-button { border-radius: 999px !important; }
+.secondary-button { background: var(--raised) !important; color: var(--text) !important; border-color: transparent !important; }
+.nav-pill[aria-current="page"] { color: var(--accent) !important; background: transparent !important; box-shadow: none !important; }
+.nav-pill[aria-current="page"] svg { color: var(--accent) !important; }
+.brand-mark { background: var(--accent) !important; color: #fff !important; border-radius: 10px !important; }
+.segmented-control, .segment, .app-topbar select { border-radius: 10px !important; }
+.segmented-control { background: var(--surface) !important; border: 0 !important; padding: 2px !important; }
+.segmented-control .segment[aria-pressed="true"],
+.segmented-control .segment[aria-selected="true"] { background: var(--hover) !important; color: #fff !important; box-shadow: none !important; }
+.border-white\/40 { background: var(--accent) !important; border-color: transparent !important; color: #fff !important; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 select,
 textarea,
-.field-input,
-.primary-button,
-.secondary-button,
-.send-button,
-.suggestion-chip,
-.segment,
-.nav-pill,
-.icon-button {
-  border-radius: 8px !important;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-.primary-button,
-.send-button { background: var(--accent); color: #111; }
-.secondary-button { background: transparent; border-color: var(--line); color: var(--text); }
-.secondary-button:hover,
-.icon-button:hover,
-.nav-pill:hover { background: var(--hover); }
-.field-input,
-input:not([type="checkbox"]):not([type="radio"]),
-select,
-textarea {
-  background: var(--bg);
-  border-color: var(--line);
+.field-input {
+  background: var(--raised) !important;
+  border: 0 !important;
+  border-radius: 12px !important;
   color: var(--text);
+  caret-color: var(--accent);
 }
-.field-input:focus,
-input:focus,
-select:focus,
-textarea:focus { border-color: rgb(255 255 255 / .3); outline: none; }
-/* Login. */
-.login-shell { min-height: 100dvh; }
-.login-card,
-.login-form { background: var(--surface); border: 1px solid var(--line); }
-/* Chat. */
-.chat-composer { border: 1px solid var(--line); background: var(--surface); }
-.chat-user { background: var(--hover) !important; }
-.chat-model,
-.chat-assistant { background: transparent !important; }
-/* Smooth surface transitions. */
-.domain-columns,
-.domain-detail,
-.domain-list,
-.settings-sidebar,
-[role="dialog"] > div {
-  transition: background-color 160ms ease, border-color 160ms ease;
+input:focus, select:focus, textarea:focus, .field-input:focus { outline: 2px solid rgb(10 132 255 / .7); outline-offset: 1px; }
+.domain-columns { gap: 0 !important; padding: 0 !important; height: 100%; }
+.domain-list, .domain-list.is-chat, .settings-sidebar {
+  width: 272px;
+  margin: 10px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: var(--surface) !important;
 }
-
-/* Borders on blocks everywhere. */
-details,
-.settings-content > div > section,
-.settings-content section,
-.surface-card,
-.chat-composer,
-.domain-detail > div,
-.domain-list > div,
-.code-projects,
-.code-editor,
-.code-terminal,
-.code-preview,
-[role="dialog"] > div,
-dialog {
-  border: 1px solid var(--line) !important;
-  border-radius: 8px !important;
+.domain-detail, .code-workspace { border: 0 !important; }
+.workspace-toolbar {
+  min-height: 52px;
+  padding: 10px 16px !important;
+  border: 0 !important;
+  background: transparent !important;
 }
-details { background: var(--surface); padding: 12px; margin-bottom: 8px; }
-details summary { cursor: pointer; }
-/* Settings and engagement materials: no purple. */
-.text-accent-200, .text-accent-300, .text-accent-400 { color: var(--text) !important; }
-.bg-accent-500\/15, .bg-accent-500\/10, .bg-accent-600 { background: var(--hover) !important; }
-.settings-sidebar a[aria-current="page"] { color: var(--text) !important; background: var(--hover) !important; }
-
-/* Let the animated wash show through panels. */
-.app-shell,
-.login-shell { background: transparent !important; }
-.app-main,
-.domain-detail,
-.code-workspace,
-.settings-content { background: transparent !important; }
-.domain-list,
-.settings-sidebar,
-.workspace-toolbar,
-.chat-composer,
-.login-form,
-.login-card,
-details,
-.settings-content > div > section,
-.settings-content section,
-.surface-card,
-[role="dialog"] > div {
-  background: rgb(14 16 22 / .72) !important;
-  backdrop-filter: blur(18px);
+.workspace-toolbar .workspace-title h1 { font-size: 22px; font-weight: 700; letter-spacing: -.03em; }
+.settings-sidebar { width: 260px; padding: 12px !important; box-shadow: none !important; }
+.settings-sidebar a { border-radius: 12px !important; }
+.settings-sidebar a[aria-current="page"] {
+  background: var(--accent) !important;
+  color: #fff !important;
+  box-shadow: none !important;
 }
-.login-layout, .login-card, .login-intro { position: relative; z-index: 1; }
-.segmented-control, .segment, .app-topbar select { border-radius: 0; }
+.settings-sidebar a[aria-current="page"] svg { color: #fff !important; }
+details, .settings-content > div > section, .settings-content section, .surface-card, .chat-composer, .login-form, .login-card, [role="dialog"] > div, dialog {
+  background: var(--surface) !important;
+  border: 0 !important;
+  backdrop-filter: none !important;
+}
+.chat-user { background: var(--raised) !important; border-radius: 18px !important; }
+.chat-model, .chat-assistant { background: transparent !important; }
+.chat-avatar { background: var(--accent) !important; color: #fff !important; border-radius: 10px !important; }
+[role="dialog"] { background: rgb(0 0 0 / .55); }
+dialog::backdrop { background: rgb(0 0 0 / .55); backdrop-filter: blur(16px); }
+.appearance-preview { background: #000 !important; border: 0 !important; border-radius: 16px !important; }
+.login-shell { background: #000 !important; }
+.login-form, .login-card { position: relative; z-index: 1; }
+.text-accent-200, .text-accent-300, .text-accent-400 { color: #99c9ff !important; }
+.bg-accent-500\/15, .bg-accent-500\/10 { background: rgb(10 132 255 / .18) !important; }
+.bg-accent-600 { background: var(--accent) !important; }
+.ios-panel {
+  margin: 10px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: var(--surface) !important;
+}
+.chat-composer textarea { background: transparent !important; outline: none !important; }

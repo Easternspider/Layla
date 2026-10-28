@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <option value="settings">{t("nav.settings")}</option>
           </select>
           <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-3">
-            <button onClick={() => setPalette(true)} className="hidden items-center gap-2 border border-white/10 px-2 py-1.5 text-[11px] text-neutral-500 hover:text-white lg:inline-flex" aria-label="Поиск по Layla">Поиск<span className="border border-white/10 px-1 text-[10px]">Ctrl+K</span></button>
+            <button onClick={() => setPalette(true)} className="hidden items-center gap-2 rounded-full bg-[#1c1c1e] px-3 py-1.5 text-[13px] text-neutral-400 hover:text-white lg:inline-flex" aria-label="Поиск по Layla">Поиск<span className="text-[11px] text-neutral-500">Ctrl K</span></button>
             <ActivityPanel /><Link href="/settings/general" className="icon-button hidden sm:inline-flex" aria-label={t("nav.settings")} aria-current={pathname.startsWith("/settings") ? "page" : undefined}><Settings2 className="h-[18px] w-[18px]" /></Link>
             <details ref={accountMenu} className="relative">
               <summary aria-label="Меню аккаунта" className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-full p-1 text-neutral-400 [&::-webkit-details-marker]:hidden">

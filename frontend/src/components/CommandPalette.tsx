@@ -57,13 +57,13 @@ export function CommandPalette({ open, close }: { open: boolean; close: () => vo
   if (!open) return null;
   return (
     <div role="dialog" aria-modal="true" aria-label="Поиск по Layla" className="fixed inset-0 z-[80] grid place-items-start bg-black/60 p-4 pt-[12vh]" onClick={close}>
-      <div onClick={e => e.stopPropagation()} className="w-full max-w-xl border border-white/15 bg-black shadow-floating">
-        <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Домен, чат, кейс, проект" aria-label="Команда" className="w-full border-b border-white/10 bg-transparent px-4 py-3 text-sm outline-none" />
-        <div className="max-h-80 overflow-y-auto py-1">
+      <div onClick={e => e.stopPropagation()} className="w-full max-w-xl overflow-hidden rounded-[20px] bg-[#1c1c1e] shadow-floating">
+        <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Домен, чат, кейс, проект" aria-label="Команда" className="w-full border-0 border-b border-white/10 bg-transparent px-4 py-3.5 text-base outline-none" />
+        <div className="max-h-80 overflow-y-auto p-1.5">
           {!hits.length && <p className="px-4 py-6 text-sm text-neutral-500">Ничего не найдено.</p>}
           {hits.slice(0, 40).map((hit, index) => (
-            <button key={`${hit.hint}:${hit.id}`} onMouseEnter={() => setCursor(index)} onClick={() => go(hit)} className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm ${index === cursor ? "bg-white/10 text-white" : "text-neutral-300"}`}>
-              <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-neutral-500">{hit.hint}</span>
+            <button key={`${hit.hint}:${hit.id}`} onMouseEnter={() => setCursor(index)} onClick={() => go(hit)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm ${index === cursor ? "bg-[#0A84FF] text-white" : "text-neutral-200"}`}>
+              <span className={`w-16 shrink-0 text-[11px] ${index === cursor ? "text-white/80" : "text-neutral-500"}`}>{hit.hint}</span>
               <span className="truncate">{hit.label}</span>
             </button>
           ))}

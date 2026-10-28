@@ -126,13 +126,13 @@ export function WorkRail({
   }
   if (!open) {
     return (
-      <aside className="flex w-9 shrink-0 flex-col items-center border-r border-white/10 bg-black py-2">
+      <aside className="m-2 flex w-9 shrink-0 flex-col items-center rounded-2xl bg-[#1c1c1e] py-2">
         <button onClick={() => setOpen(true)} className="text-neutral-500 hover:text-white" aria-label="Показать список"><PanelLeft className="h-4 w-4" /></button>
       </aside>
     );
   }
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-white/10 bg-black">
+    <aside className="m-2 flex w-64 shrink-0 flex-col rounded-2xl bg-[#1c1c1e]">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{title}</span>
         <span className="ml-auto flex items-center gap-1">
@@ -158,7 +158,7 @@ export function WorkRail({
               {!folders[name] && group.map(row => {
                 const meta = [row.subtitle, ago(row.updatedAt)].filter(Boolean).join(" · ");
                 return (
-                  <div key={row.id} className={`group flex items-center gap-1 px-2 py-1.5 ${active === row.id ? "bg-white/5 text-white" : "text-neutral-400 hover:bg-white/[0.03]"}`} style={active === row.id ? { boxShadow: "inset 2px 0 0 #fff" } : undefined}>
+                  <div key={row.id} className={`group mx-1 flex items-center gap-1 rounded-xl px-2 py-1.5 ${active === row.id ? "bg-[#0A84FF] text-white" : "text-neutral-300 hover:bg-white/[0.06]"}`}>
                     {editing === row.id ? (
                       <form className="flex min-w-0 flex-1 gap-1" onSubmit={event => { event.preventDefault(); if (draft.trim()) { onRename?.(row.id, draft.trim()); setEditing(null); } }}>
                         <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} aria-label="Новое название" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setEditing(null); } }} className="min-w-0 flex-1 border border-white/15 bg-black px-1 py-0.5 text-xs text-white" />
