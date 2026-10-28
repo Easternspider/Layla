@@ -64,6 +64,7 @@ async def test_models_use_slug(monkeypatch):
 
     def handle(request):
         assert str(request.url).startswith(codex_oauth.BASE_URL + "/models")
+        assert request.url.params["client_version"] == codex_oauth.CLIENT_VERSION
         assert "api.openai.com" not in str(request.url)
         assert request.headers["chatgpt-account-id"] == "acct_1"
         return httpx.Response(200, json={"models": [

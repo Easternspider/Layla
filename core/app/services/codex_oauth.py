@@ -19,6 +19,8 @@ from app.services.provider_errors import ProviderError
 ISSUER = "https://auth.openai.com"
 BASE_URL = "https://chatgpt.com/backend-api/codex"
 CLIENT_ID = os.getenv("LAYLA_CODEX_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann")
+# ChatGPT rejects GET /models without this. It is the Codex CLI release, not a secret.
+CLIENT_VERSION = os.getenv("LAYLA_CODEX_CLIENT_VERSION", "0.165.0")
 TOKEN_PREFIX = "codex-oauth:"
 VERIFY = ISSUER + "/codex/device"
 ORIGINATOR = "layla"

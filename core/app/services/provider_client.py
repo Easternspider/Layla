@@ -220,10 +220,13 @@ def _headers(provider: Provider, key: str | None) -> dict[str, str]:
 
 async def list_models(provider: Provider, key: str | None) -> list[str]:
     """Получить список моделей у провайдера (OpenAI-совместимый /models)."""
-    if _is_anthropic_native(provider):
-        url = endpoint(provider, "models")
-    else:
-        url = endpoint(provider, "models")
+    url = endpoint(provider, "models")
+    from app.services.codex_oauth import CLIENT_VERSION, TOKEN_PREFIX as CODEX_PREFIX
+    from app.services.grok_oauth import TOKEN_PREFIX as GROK_PREFIX
+    grok = bool(key and key.startswith(GROK_PREFIX))
+    codex = bool(key and key.startswith(CODEX_PREFIX))
+    if codex and all(c.isalnum() or c in "._+-" for c in CLIENT_VERSION):
+        url += ("&" if "?" in url else "?") + "client_version=" + CLIENT_VERSION
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(url, headers=_headers(provider, key))
         resp.raise_for_status()
@@ -234,10 +237,6 @@ async def list_models(provider: Provider, key: str | None) -> list[str]:
         items = data.get("data") or data.get("models") or []
     else:
         items = []
-    from app.services.codex_oauth import TOKEN_PREFIX as CODEX_PREFIX
-    from app.services.grok_oauth import TOKEN_PREFIX as GROK_PREFIX
-    grok = bool(key and key.startswith(GROK_PREFIX))
-    codex = bool(key and key.startswith(CODEX_PREFIX))
     names: list[str] = []
     for it in items:
         if isinstance(it, dict) and it.get("hidden"):
