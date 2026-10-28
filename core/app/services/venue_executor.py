@@ -20,8 +20,10 @@ from app.services import venue_gate
 _DANGEROUS = [
     r"\brm\s+-rf\b", r"\bmkfs\b", r"\bdd\s+if=", r"\b:\(\)\{", r"\bshutdown\b",
     r"\breboot\b", r"--os-shell", r"--os-pwn", r"\bmsfconsole\b", r"\bexploit\b",
-    r"\bhydra\b", r"\bnc\b.*-e", r">\s*/dev/", r"\bchmod\s+777\b", r"\bcurl\b.*\|\s*sh",
+    r"\bhydra\b", r"\bnc\b.*-e", r"\bchmod\s+777\b", r"\bcurl\b.*\|\s*sh",
     r"\bwget\b.*\|\s*sh", r"DROP\s+TABLE", r"DELETE\s+FROM",
+    # >/dev/null is discarded output, not a write to a disk.
+    r">\s*/dev/(?!null\b|zero\b|stdout\b|stderr\b|tty\b|fd/|random\b|urandom\b)",
 ]
 _DANGEROUS_RE = re.compile("|".join(_DANGEROUS), re.IGNORECASE)
 

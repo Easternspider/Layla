@@ -41,7 +41,11 @@ def test_budget_within_limits_ok():
 def test_dangerous_commands_flagged():
     assert venue_executor.is_dangerous("rm -rf /")
     assert venue_executor.is_dangerous("sqlmap -u x --os-shell")
+    assert venue_executor.is_dangerous("echo x > /dev/sda")
     assert not venue_executor.is_dangerous("nmap -sV example.com")
+    assert not venue_executor.is_dangerous(
+        "cat /etc/os-release; date -u; nft list ruleset 2>/dev/null || true; iptables -S 2>/dev/null || true"
+    )
 
 
 # ---- Исполнение строго за гейтами ----
