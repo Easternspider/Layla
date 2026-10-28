@@ -419,3 +419,27 @@ textarea:focus { border-color: rgb(255 255 255 / .3); outline: none; }
 [role="dialog"] > div {
   transition: background-color 160ms ease, border-color 160ms ease;
 }
+
+/* Borders on blocks everywhere. */
+details,
+.settings-content > div > section,
+.settings-content section,
+.surface-card,
+.chat-composer,
+.domain-detail > div,
+.domain-list > div,
+.code-projects,
+.code-editor,
+.code-terminal,
+.code-preview,
+[role="dialog"] > div,
+dialog {
+  border: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+}
+details { background: var(--surface); padding: 12px; margin-bottom: 8px; }
+details summary { cursor: pointer; }
+/* Settings and engagement materials: no purple. */
+.text-accent-200, .text-accent-300, .text-accent-400 { color: var(--text) !important; }
+.bg-accent-500\/15, .bg-accent-500\/10, .bg-accent-600 { background: var(--hover) !important; }
+.settings-sidebar a[aria-current="page"] { color: var(--text) !important; background: var(--hover) !important; }

@@ -22,11 +22,11 @@ const config: Config = {
           800: "#283248", 900: "#151d2d", 950: "#0c101b",
         },
         accent: {
-          50: "#f7f5ff", 100: "#eee8ff", 200: "#ded3ff", 300: "#c2afff",
-          400: "#a98cf5", 500: "#9175ed", 600: "#7659d2", 700: "#6145af",
-          800: "#4d3889", 900: "#372b63", 950: "#241c40",
+          50: "#f5f6f7", 100: "#e8eaed", 200: "#d4d7dc", 300: "#b8bcc4",
+          400: "#9aa0a8", 500: "#7c828a", 600: "#5f656d", 700: "#484e55",
+          800: "#343a40", 900: "#24282d", 950: "#16181b",
         },
-        domain: { code: "#bba7ff", pentest: "#e9abbc", osint: "#8ed8c6", design: "#c2afff" },
+        domain: { code: "#c8ccd2", pentest: "#d4d7dc", osint: "#b8bcc4", design: "#c8ccd2" },
       },
       borderRadius: {
         DEFAULT: "0", sm: "0", md: "0", lg: "0",
