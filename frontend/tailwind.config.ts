@@ -29,8 +29,8 @@ const config: Config = {
         domain: { code: "#bba7ff", pentest: "#e9abbc", osint: "#8ed8c6", design: "#c2afff" },
       },
       borderRadius: {
-        DEFAULT: "0.75rem", sm: "0.5rem", md: "0.875rem", lg: "1.125rem",
-        xl: "1.5rem", "2xl": "1.75rem", "3xl": "2rem",
+        DEFAULT: "0", sm: "0", md: "0", lg: "0",
+        xl: "0", "2xl": "0", "3xl": "0",
       },
       boxShadow: {
         panel: "0 24px 80px -28px rgb(0 0 0 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.04)",
