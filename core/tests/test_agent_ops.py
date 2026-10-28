@@ -13,7 +13,13 @@ def test_agent_is_a_domain_and_lists_server_tools():
     assert "web_search" in agent_ops.NOTE and "не бери из памяти" in agent_ops.NOTE and "5–15" in agent_ops.NOTE
 
 
-def test_a_task_can_be_limited_to_chosen_servers():
+def test_server_command_waits_long_enough_for_certbot():
+    args = agent_ops.ServerCommand.model_validate({"server_id": "s", "command": "certbot renew --dry-run"})
+    assert args.timeout == 600
+    slow = agent_ops.ServerCommand.model_validate({"server_id": "s", "command": "certbot renew --dry-run", "timeout": 1800})
+    assert slow.timeout == 1800
+    with pytest.raises(ValueError):
+        agent_ops.ServerCommand.model_validate({"server_id": "s", "command": "true", "timeout": 5})
     limited = agent_ops.Ops(None, "owner", ["alpha", "", "beta"])
     assert limited.allows("alpha") and limited.allows("beta")
     assert not limited.allows("gamma")
