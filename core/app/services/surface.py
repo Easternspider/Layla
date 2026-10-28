@@ -17,13 +17,15 @@ from urllib.request import Request, urlopen
 
 class Links(HTMLParser):
     def __init__(self):
-        super().__init__(); self.hrefs=[]; self.scripts=[]
+        super().__init__(); self.hrefs=[]; self.scripts=[]; self.fields=[]
     def handle_starttag(self, tag, attrs):
         d = dict(attrs)
         if tag in ("a", "form") and d.get("href" if tag == "a" else "action"):
             self.hrefs.append(d.get("href") or d.get("action"))
         if tag == "script" and d.get("src"):
             self.scripts.append(d["src"])
+        if tag in ("input", "textarea", "select") and d.get("name"):
+            self.fields.append(d["name"][:40])
 
 def jar_header(path):
     if not path: return ""
@@ -42,6 +44,7 @@ def fetch(url, cookie):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Upgrade-Insecure-Requests": "1",
     }
     if cookie: headers["Cookie"] = cookie
     try:
@@ -50,22 +53,31 @@ def fetch(url, cookie):
     except Exception as exc:
         return getattr(exc, "code", 0) or 0, "", "", url
 
-ROUTE = re.compile(r"""["'](/(?:api|v\d+|auth|admin|account|users?)[^"'\\\s]{0,100})["']""")
+ROUTE = re.compile(r"""["'](/(?:[A-Za-z0-9][A-Za-z0-9_./-]{0,100}))["']""")
 host = urlsplit(START).hostname
 cookie = jar_header(JAR)
-queue, seen, rows, scripts = [START], set(), [], 3
-while queue and len(rows) < 25:
-    url = queue.pop(0).split("#")[0]
-    if url in seen or urlsplit(url).hostname != host: continue
+queue, seen, rows, scripts = [(START, 0)], set(), [], 8
+while queue and len(seen) < 60:
+    url, depth = queue.pop(0)
+    url = url.split("#")[0]
+    if url in seen or urlsplit(url).hostname != host or depth > 3: continue
     seen.add(url)
     status, ctype, text, final = fetch(url, cookie)
     path = urlsplit(final).path or "/"
-    rows.append({"path": path[:180], "status": status, "role": ROLE})
-    if "html" not in ctype: continue
+    params = [part[:40] for part in urlsplit(final).query.split("&") if part][:8]
+    row = {"path": path[:180], "status": status, "role": ROLE}
+    if params: row["params"] = params
+    if "html" not in ctype:
+        rows.append(row)
+        continue
     parser = Links(); parser.feed(text)
+    if parser.fields:
+        row["fields"] = parser.fields[:12]
+    rows.append(row)
+    if depth >= 3: continue
     for href in parser.hrefs:
         nxt = urljoin(final, href).split("#")[0]
-        if urlsplit(nxt).hostname == host and nxt not in seen: queue.append(nxt)
+        if urlsplit(nxt).hostname == host and nxt not in seen: queue.append((nxt, depth + 1))
     for src in parser.scripts:
         if scripts <= 0: break
         js_url = urljoin(final, src)
@@ -73,8 +85,9 @@ while queue and len(rows) < 25:
         scripts -= 1
         _, _, js, _ = fetch(js_url, "")
         for match in ROUTE.findall(js):
+            if match.startswith("//"): continue
             rows.append({"path": match[:180], "status": None, "role": ROLE, "from": "js"})
-print("LAYLA_SURFACE " + json.dumps(rows[:40], ensure_ascii=False))
+print("LAYLA_SURFACE " + json.dumps(rows[:120], ensure_ascii=False))
 '''
 
 _COMPARE = r'''
@@ -109,7 +122,7 @@ def status_of(url, cookie):
 
 user, other = jar_header(USER_JAR), jar_header(OTHER_JAR)
 rows = []
-for path in PATHS[:20]:
+for path in PATHS[:40]:
     url = urljoin(BASE, path)
     if urlsplit(url).hostname != urlsplit(BASE).hostname: continue
     rows.append({"path": path, "anon": status_of(url, ""), "user": status_of(url, user), "other": status_of(url, other)})
@@ -175,7 +188,7 @@ def compare_command(target: str, paths: list[str], user_jar: str, other_jar: str
         raise ValueError("compare_roles требует хотя бы один путь")
     prelude = (
         f"BASE={json.dumps('https://' + host + '/')}\n"
-        f"PATHS={json.dumps(clean[:20])}\n"
+        f"PATHS={json.dumps(clean[:40])}\n"
         f"USER_JAR={json.dumps(jar_path(user_jar))}\n"
         f"OTHER_JAR={json.dumps(jar_path(other_jar))}\n"
     )
@@ -227,5 +240,8 @@ def absorb(rows: list[dict]) -> list[dict]:
                 item[role] = row["status"]
             if row.get("from") == "js":
                 item["from"] = "js"
+            for key in ("fields", "params"):
+                if isinstance(row.get(key), list) and row[key]:
+                    item[key] = [str(part)[:40] for part in row[key][:12]]
         item["verdict"] = verdict(path, item.get("anon"), item.get("user"), item.get("other"))
     return list(grouped.values())

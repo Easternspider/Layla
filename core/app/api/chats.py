@@ -1055,7 +1055,11 @@ async def run_chat(
             caps = dict((prov.model_caps or {}).get(model) or {})
             # Указания домена и правила проекта (LAYLA.md) — дополнение к системному промпту.
             from app.services.pentest_policy import PENTEST_CHAT_NOTE
+            from app.services import osint_bridge
             extra = design_gen.DESIGN_CHAT_NOTE if domain == "design" else PENTEST_CHAT_NOTE if domain == "pentest" else ""
+            if domain == "osint":
+                async with maker() as osint_session:
+                    extra = osint_bridge.render(await osint_bridge.recent(osint_session, owner_id))
             rules = await run_in_threadpool(project_agent.project_rules, root)
             extra = "\n\n".join(part for part in (extra, rules) if part)
             messages = payload

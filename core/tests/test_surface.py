@@ -49,8 +49,8 @@ def test_actions_exist():
 def test_remote_crawler_reads_links_and_js_routes():
     pages = {
         "/": ("text/html", '<a href="/account">A</a><script src="/app.js"></script>'),
-        "/account": ("text/html", "<form action='/profile'></form>"),
-        "/app.js": ("text/javascript", 'fetch("/api/orders")'),
+        "/account": ("text/html", "<form action='/profile?tab=mail'><input name='email'></form>"),
+        "/app.js": ("text/javascript", 'fetch("/api/orders"); fetch("/dashboard")'),
         "/profile": ("text/html", "ok"),
     }
 
@@ -84,3 +84,8 @@ def test_remote_crawler_reads_links_and_js_routes():
     assert "/account" in paths
     assert "/profile" in paths
     assert "/api/orders" in paths
+    assert "/dashboard" in paths
+    account = next(row for row in found if row["path"] == "/account")
+    profile = next(row for row in found if row["path"] == "/profile")
+    assert account["fields"] == ["email"]
+    assert profile["params"] == ["tab=mail"]
