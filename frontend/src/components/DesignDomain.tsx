@@ -4,14 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, ArrowRight, ChevronDown, Code2, Columns2, Eye, History, Loader2, Monitor, MousePointerClick, Palette,
-  Smartphone, Sparkles, Tablet, Trash2,
+  ChevronDown, Code2, Columns2, Eye, History, Loader2, Monitor, MousePointerClick, Palette,
+  PanelRight, Smartphone, Sparkles, Tablet, Trash2,
 } from "lucide-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { PickBar, PickFrame } from "@/components/PickBar";
 import { pickMessage, type PickedElement } from "@/lib/pick";
 import { DesignBriefForm } from "@/components/DesignBriefForm";
 import { CodeStream, DesignLive, isActive } from "@/components/DesignLive";
+import { loadPins, useListKeys, WorkRail } from "@/components/WorkRail";
 import { api, type Chat, type Design, type FileContent, type FileNode, type Job, type ModelInfo, type Project } from "@/lib/api";
 import { DEFAULT_BRIEF, briefPayload, loadBrief, saveBrief, type Brief } from "@/lib/design-brief";
 import { useAuth } from "@/store/auth";
@@ -37,6 +38,11 @@ export function DesignDomain() {
   const [pane, setPane] = useState<"chat" | "result">("chat");
   const [busy, setBusy] = useState(false);
   const versionsMenu = useRef<HTMLDetailsElement>(null);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [listQuery, setListQuery] = useState("");
+  const [pins, setPins] = useState<string[]>([]);
+  useEffect(() => { setPins(loadPins("layla:design:pinned")); }, []);
+  useEffect(() => { try { localStorage.setItem("layla:design:pinned", JSON.stringify(pins)); } catch { /* ignore */ } }, [pins]);
   const [error, setError] = useState<string | null>(null);
   // Генерация по брифу, которую показываем вживую; watching=false — пользователь смотрит другое.
   const [liveJobId, setLiveJobId] = useState<string | null>(null);
@@ -161,7 +167,7 @@ export function DesignDomain() {
       }
       setPane("result");
     };
-    const chat = (e: Event) => { if (mine(e)) setPane("chat"); };
+    const chat = (e: Event) => { if (mine(e)) { setPane("chat"); setChatOpen(true); } };
     window.addEventListener("layla:open-workspace", result);
     window.addEventListener("layla:open-chat", chat);
     return () => { window.removeEventListener("layla:open-workspace", result); window.removeEventListener("layla:open-chat", chat); };
@@ -181,8 +187,10 @@ export function DesignDomain() {
   const html = version ? version.files?.[0]?.content ?? "" : live.data?.content ?? "";
 
   const versionLabel = (d: Design) => {
+    const brief = d.brief as Record<string, string>;
+    if (brief?.title) return brief.title;
     const i = designs.findIndex(x => x.id === d.id);
-    return `Версия ${designs.length - i} · ${String((d.brief as Record<string, string>)?.artifact_type || "Design")} · ${d.stack}`;
+    return `Версия ${designs.length - i} · ${String(brief?.artifact_type || "Design")} · ${d.stack}`;
   };
   function choose(next: Source) {
     setSource(next);
@@ -265,43 +273,48 @@ export function DesignDomain() {
     } finally { setBusy(false); }
   }
 
+  const visibleDesigns = designs.filter(d => versionLabel(d).toLowerCase().includes(listQuery.trim().toLowerCase()));
+  const orderedDesigns = [...visibleDesigns].sort((a, b) => Number(pins.includes(b.id)) - Number(pins.includes(a.id)));
+  const activeId = source.kind === "design" ? source.id : "chat-files";
+  useListKeys(["chat-files", ...orderedDesigns.map(d => d.id)], activeId, id => {
+    if (id === "chat-files") { choose({ kind: "chat" }); setChatOpen(true); }
+    else choose({ kind: "design", id });
+  }, () => { setChatOpen(true); window.dispatchEvent(new CustomEvent("layla:new-chat", { detail: { domain: "design" } })); });
+
   return (
-    <div className="domain-workspace flex h-full min-w-0 flex-col">
-      <header className="workspace-toolbar">
-        <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent-500/10 text-accent-300"><Palette className="h-5 w-5" /></span>
-        <div className="workspace-title"><h1>Дизайн</h1><p>Бриф даёт первый макет, чат его дорабатывает, «Код» превращает в сайт</p></div>
-        <button className="secondary-button ml-auto text-xs" onClick={openInCode} disabled={busy || (!version && !chatProject)}>
-          <Code2 className="h-4 w-4" /><span>Открыть в Коде</span>
-        </button>
-      </header>
-
-      <div className="domain-columns" data-detail={pane === "result"}>
-        {/* Левая колонка: быстрый старт по брифу + чат-доработка */}
-        <div className="domain-list is-chat">
-          <button className="domain-back items-center gap-2 px-4 py-3 text-sm text-neutral-400" onClick={() => setPane("result")}>Превью<ArrowRight className="h-4 w-4" /></button>
-          {/* Бриф и чат раскрываются по очереди: вдвоём в одной колонке они
-              зажимают друг друга, и поле ввода чата обрезается. */}
-          <div className={`flex flex-col border-b border-ink-700/50 ${briefOpen ? "min-h-0 flex-1" : "shrink-0"}`}>
-            <button onClick={() => setBriefOpen(v => !v)} aria-expanded={briefOpen} className="flex w-full items-center gap-2 px-4 py-3 text-sm text-neutral-300">
-              <Sparkles className="h-4 w-4 text-accent-300" />
-              <span className="flex-1 text-left">Быстрый старт по брифу</span>
-              <ChevronDown className={`h-4 w-4 transition-transform ${briefOpen ? "rotate-180" : ""}`} />
-            </button>
-            {briefOpen && (
-              <DesignBriefForm brief={brief} onChange={setBrief} stack={stack} onStack={setStack}
-                model={model} onModel={setModel} models={models} pending={generate.isPending}
-                onGenerate={() => generate.mutate()} />
-            )}
-          </div>
-          {error && <p role="alert" className="border-b border-ink-700/50 px-4 py-2 text-xs text-red-300">{error}</p>}
-          <div className={briefOpen ? "hidden" : "min-h-0 flex-1"}>
-            <ChatPanel domain="design" onProject={bindProject} onFileChange={refresh} />
-          </div>
+    <div className="flex h-full min-h-0 bg-black text-neutral-200">
+      <WorkRail title="Версии" query={listQuery} onQuery={setListQuery} active={activeId}
+        onOpen={id => { if (id === "chat-files") { choose({ kind: "chat" }); setChatOpen(true); } else choose({ kind: "design", id }); }}
+        onCreate={() => setBriefOpen(v => !v)}
+        rows={[
+          { id: "chat-files", title: "Файлы чата", subtitle: page?.name || "пока пусто", pinned: pins.includes("chat-files") },
+          ...orderedDesigns.map(d => ({ id: d.id, title: versionLabel(d), subtitle: d.stack, pinned: pins.includes(d.id), working: liveJob.data?.result?.design_id === d.id && isActive(liveJob.data) })),
+        ]}
+        onPin={id => setPins(list => list.includes(id) ? list.filter(value => value !== id) : [...list, id])}
+        onCopy={id => { const url = new URL(window.location.href); if (id !== "chat-files") url.searchParams.set("design", id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}
+        onRename={async id => {
+          if (id === "chat-files") return;
+          const item = designs.find(d => d.id === id); if (!item) return;
+          const title = window.prompt("Название версии", versionLabel(item)); if (!title?.trim()) return;
+          await api.patch(`/designs/${id}`, { title: title.trim() });
+          await qc.invalidateQueries({ queryKey: ["designs"] });
+        }}
+        onDelete={id => { if (id !== "chat-files") void removeVersion(id); }}>
+        <div className="border-b border-white/10">
+          <button onClick={() => setBriefOpen(v => !v)} aria-expanded={briefOpen} className="flex w-full items-center gap-2 px-3 py-2 text-xs text-neutral-300">
+            <Sparkles className="h-3.5 w-3.5" /><span className="flex-1 text-left">Бриф</span>
+            <ChevronDown className={`h-3.5 w-3.5 ${briefOpen ? "rotate-180" : ""}`} />
+          </button>
+          {briefOpen && <div className="max-h-72 overflow-y-auto px-2 pb-2"><DesignBriefForm brief={brief} onChange={setBrief} stack={stack} onStack={setStack} model={model} onModel={setModel} models={models} pending={generate.isPending} onGenerate={() => generate.mutate()} /></div>}
+          {error && <p role="alert" className="px-3 pb-2 text-xs text-red-300">{error}</p>}
         </div>
+      </WorkRail>
 
-        {/* Правая колонка: живое превью того, что сейчас выбрано */}
-        <div className="domain-detail">
-          <button className="domain-back items-center gap-2 px-4 py-3 text-sm text-neutral-400" onClick={() => setPane("chat")}><ArrowLeft className="h-4 w-4" />К чату</button>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2">
+            <button className="secondary-button text-xs" onClick={openInCode} disabled={busy || (!version && !chatProject)}><Code2 className="h-4 w-4" />В Код</button>
+            <button onClick={() => setChatOpen(v => !v)} className="ml-auto text-neutral-500 hover:text-white" aria-label="Чат"><PanelRight className="h-4 w-4" /></button>
+          </div>
           <div className="flex flex-wrap items-center gap-2 border-b border-ink-700/60 px-4 py-3">
             <div className="flex gap-1">
               <ToolbarBtn active={view === "preview"} onClick={() => setView("preview")}><Eye className="h-3.5 w-3.5" /> Превью</ToolbarBtn>
@@ -399,8 +412,10 @@ export function DesignDomain() {
           </div>
           )}
           {!showLive && <PickBar picking={picking} element={pickedEl} onSend={sendPick} onCancel={stopPicking} busy={pickBusy} />}
-        </div>
       </div>
+      {chatOpen && <aside className="hidden w-[22rem] shrink-0 flex-col border-l border-white/10 lg:flex">
+        <ChatPanel domain="design" onProject={bindProject} onFileChange={refresh} />
+      </aside>}
     </div>
   );
 }

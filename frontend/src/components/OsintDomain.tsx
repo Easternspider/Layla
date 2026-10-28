@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Globe2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ExternalLink, PanelRight, Plus, RefreshCw, Trash2 } from "lucide-react";
 import {
-  api, type IntelProvider, type IntelProviderName, type OsintArtifact,
+  api, type IntelProvider, type IntelProviderName, type Job, type OsintArtifact,
   type OsintCase, type OsintLookup, type OsintSource, type SubjectType,
 } from "@/lib/api";
 import { ChatPanel } from "@/components/ChatPanel";
+import { confirmAction } from "@/components/ConfirmDialog";
+import { loadPins, useListKeys, WorkRail } from "@/components/WorkRail";
+import { useAuth } from "@/store/auth";
 
 const inputStyle = "w-full rounded-md border border-ink-700 bg-ink-800 px-3 py-2 text-sm disabled:opacity-40";
 const buttonStyle = "rounded-md bg-accent-600 px-3 py-2 text-xs text-white disabled:opacity-40";
@@ -226,85 +229,107 @@ function CasePanel({ id, onDelete }: { id: string; onDelete: () => void }) {
 
 export function OsintDomain() {
   const qc = useQueryClient();
-  const [view, setView] = useState("chat");
-  useEffect(() => { const open = () => setView("chat"); window.addEventListener("layla:open-chat", open); return () => window.removeEventListener("layla:open-chat", open); }, []);
+  const owner = useAuth(s => s.user?.id);
+  const [main, setMain] = useState<"case" | "chat">("chat");
+  const [rail, setRail] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [pins, setPins] = useState<string[]>([]);
   const [form, setForm] = useState<{ subject: string; subject_type: SubjectType }>({ subject: "", subject_type: "domain" });
+  useEffect(() => { setPins(loadPins("layla:osint:pinned")); }, []);
+  useEffect(() => { try { localStorage.setItem("layla:osint:pinned", JSON.stringify(pins)); } catch { /* ignore */ } }, [pins]);
   const query = useInfiniteQuery({
     queryKey: ["osint", "cases", q, filter], initialPageParam: 0,
     queryFn: ({ pageParam }) => api.get<OsintCase[]>(`/osint/cases?limit=${pageSize}&offset=${pageParam}&q=${encodeURIComponent(q)}${filter ? `&subject_type=${filter}` : ""}`),
     getNextPageParam: (last, pages) => last.length === pageSize ? pages.length * pageSize : undefined,
   });
+  const jobs = useQuery({
+    queryKey: ["jobs", owner, "active"], enabled: !!owner,
+    queryFn: () => api.get<Job[]>("/jobs?active=true&limit=500"),
+    refetchInterval: 4000, refetchIntervalInBackground: true,
+  });
   const cases = query.data?.pages.flat() || [];
+  const ordered = useMemo(() => [...cases].sort((a, b) => Number(pins.includes(b.id)) - Number(pins.includes(a.id))), [cases, pins]);
   const create = useMutation({
     mutationFn: () => api.post<OsintCase>("/osint/cases", form),
     onSuccess: (item) => {
-      qc.invalidateQueries({ queryKey: ["osint"] }); setSelected(item.id);
+      qc.invalidateQueries({ queryKey: ["osint"] }); setSelected(item.id); setMain("case");
       setShowCreate(false); setForm({ subject: "", subject_type: "domain" }); setQ(""); setFilter("");
     },
   });
-  return <div className="domain-workspace flex h-full min-w-0 flex-col">
-    <header className="workspace-toolbar">
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent-500/10 text-accent-300"><Search className="h-5 w-5" /></span><div className="workspace-title"><h1>OSINT</h1><p>Исследования по открытым источникам</p></div>
-      <nav className="segmented-control" aria-label="Режим OSINT">
-      {[["cases", "Кейсы"], ["chat", "Чат"]].map(([id, label]) => <button key={id} onClick={() => setView(id)}
-        className="segment" aria-pressed={view === id}>{label}</button>)}</nav>
-      <Link href="/settings/integrations" className="secondary-button text-xs">Источники</Link>
-    </header>
-    {view === "chat" ? <div className="min-h-0 flex-1"><ChatPanel domain="osint" /></div> :
-      <div className="domain-columns" data-detail={!!selected}>
-        <aside className="domain-list">
-          <div className="space-y-3 border-b border-ink-700 p-4">
-            <div className="flex items-center gap-2"><h2 className="text-sm font-medium">OSINT-кейсы</h2>
-              <button onClick={() => qc.invalidateQueries({ queryKey: ["osint"] })} aria-label="Обновить кейсы"
-                className="ml-auto text-neutral-500 hover:text-white"><RefreshCw className={`h-3.5 w-3.5 ${query.isFetching ? "animate-spin" : ""}`} /></button>
-            </div>
-            <input aria-label="Поиск кейсов" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск кейсов…" className={inputStyle} />
-            <select aria-label="Тип кейса" value={filter} onChange={(e) => setFilter(e.target.value)} className={inputStyle}>
-              <option value="">Все типы</option>{Object.entries(subjectLabels).map(([id, name]) => <option value={id} key={id}>{name}</option>)}
-            </select>
-            <button onClick={() => setShowCreate(!showCreate)} className={`${buttonStyle} flex w-full items-center justify-center gap-1`}><Plus className="h-3.5 w-3.5" /> Новый кейс</button>
-            {showCreate && <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
-              <label className="block text-xs text-neutral-400">Тип нового кейса
-                <select value={form.subject_type} onChange={(e) => setForm({ ...form, subject_type: e.target.value as SubjectType })} className={`${inputStyle} mt-1`}>
-                  {Object.entries(subjectLabels).map(([id, name]) => <option value={id} key={id}>{name}</option>)}
-                </select>
-              </label>
-              <label className="block text-xs text-neutral-400">Объект исследования
-                <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} required maxLength={500}
-                  placeholder={form.subject_type === "domain" ? "example.com" : "Имя / название"} className={`${inputStyle} mt-1`} />
-              </label>
-              <ErrorNotice error={create.error} />
-              <button disabled={!form.subject.trim() || create.isPending} className={buttonStyle}>{create.isPending ? "Создание…" : "Создать кейс"}</button>
-            </form>}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            <ErrorNotice error={query.error} />
-            {query.isPending && <p className="p-3 text-xs text-neutral-500">Загрузка…</p>}
-            {!query.isPending && !query.error && !cases.length && <p className="p-4 text-center text-xs leading-relaxed text-neutral-500">{q || filter ? "Кейсы не найдены." : "Кейсов пока нет. Создайте первый, чтобы собирать данные из открытых источников."}</p>}
-            <ul className="space-y-1">{cases.map((item) => <li key={item.id}>
-              <button onClick={() => setSelected(item.id)} aria-current={selected === item.id ? "true" : undefined}
-                className={`w-full rounded-lg border p-3 text-left ${selected === item.id ? "border-accent-500/40 bg-accent-500/10" : "border-transparent hover:bg-ink-800"}`}>
-                <span className="block truncate text-sm">{item.subject}</span>
-                <span className="mt-1 block text-[11px] text-neutral-500">{subjectLabels[item.subject_type]} · {item.artifact_count} материалов</span>
-              </button>
-            </li>)}</ul>
-            <More hasMore={query.hasNextPage} pending={query.isFetchingNextPage} load={() => query.fetchNextPage()} />
-          </div>
-        </aside>
-        <div className="domain-detail">
-          {selected ? <>
-            <button onClick={() => setSelected(null)} className="domain-back items-center gap-2 px-4 py-3 text-sm text-neutral-400"><ArrowLeft className="h-4 w-4" /> К списку кейсов</button>
-            <div className="min-h-0 flex-1"><CasePanel key={selected} id={selected} onDelete={() => setSelected(null)} /></div>
-          </> : <div className="grid h-full place-items-center p-8"><div className="max-w-md text-center">
-            <Globe2 className="mx-auto mb-4 h-10 w-10 text-accent-300/70" />
-            <h2 className="text-lg font-medium">Исследование по открытым источникам</h2>
-            <p className="mt-2 text-sm leading-relaxed text-neutral-500">Создайте или выберите кейс. Собирайте материалы, сравнивайте данные источников и сохраняйте историю запросов.</p>
-          </div></div>}
+  const remove = useMutation({
+    mutationFn: (id: string) => api.del(`/osint/cases/${id}`),
+    onSuccess: (_value, id) => { qc.invalidateQueries({ queryKey: ["osint"] }); setSelected(current => current === id ? null : current); },
+  });
+  const rename = useMutation({
+    mutationFn: ({ id, subject }: { id: string; subject: string }) => api.patch<OsintCase>(`/osint/cases/${id}`, { subject }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["osint"] }),
+  });
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("case");
+    if (id) { setSelected(id); setMain("case"); }
+    const open = () => setMain("chat");
+    window.addEventListener("layla:open-chat", open);
+    return () => window.removeEventListener("layla:open-chat", open);
+  }, []);
+  const openCase = (id: string) => {
+    setSelected(id); setMain("case");
+    const url = new URL(window.location.href); url.searchParams.set("case", id); window.history.replaceState(null, "", url);
+  };
+  useListKeys(ordered.map(item => item.id), selected, openCase, () => setShowCreate(true));
+  const working = new Set((jobs.data || []).filter(job => job.domain === "osint").map(job => String(job.result?.case_id || "")));
+  return <div className="flex h-full min-h-0 bg-black text-neutral-200">
+    <WorkRail title="Кейсы" query={q} onQuery={setQ} active={selected} onOpen={openCase} onCreate={() => setShowCreate(v => !v)}
+      empty={query.isPending ? "Загрузка…" : "Кейсов пока нет."}
+      rows={ordered.map(item => ({
+        id: item.id, title: item.subject, pinned: pins.includes(item.id), working: working.has(item.id),
+        subtitle: `${subjectLabels[item.subject_type]} · ${item.artifact_count}`,
+      }))}
+      onPin={id => setPins(list => list.includes(id) ? list.filter(value => value !== id) : [...list, id])}
+      onCopy={id => { const url = new URL(window.location.href); url.searchParams.set("case", id); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}
+      onRename={async id => {
+        const item = cases.find(value => value.id === id); if (!item) return;
+        const subject = window.prompt("Новое имя кейса", item.subject); if (!subject?.trim()) return;
+        rename.mutate({ id, subject: subject.trim() });
+      }}
+      onDelete={async id => {
+        const item = cases.find(value => value.id === id);
+        if (await confirmAction(`Удалить кейс ${item?.subject || ""}? Материалы и история запросов пропадут.`)) remove.mutate(id);
+      }}>
+      <div className="space-y-2 border-b border-white/10 p-2">
+        <div className="flex items-center gap-2">
+          <select aria-label="Тип кейса" value={filter} onChange={e => setFilter(e.target.value)} className="w-full border border-white/10 bg-black px-2 py-1 text-xs">
+            <option value="">Все типы</option>{Object.entries(subjectLabels).map(([id, name]) => <option value={id} key={id}>{name}</option>)}
+          </select>
+          <button onClick={() => qc.invalidateQueries({ queryKey: ["osint"] })} aria-label="Обновить кейсы" className="text-neutral-500 hover:text-white"><RefreshCw className={`h-3.5 w-3.5 ${query.isFetching ? "animate-spin" : ""}`} /></button>
         </div>
-      </div>}
+        {showCreate && <form className="space-y-2" onSubmit={e => { e.preventDefault(); create.mutate(); }}>
+          <select value={form.subject_type} onChange={e => setForm({ ...form, subject_type: e.target.value as SubjectType })} className="w-full border border-white/10 bg-black px-2 py-1 text-xs">
+            {Object.entries(subjectLabels).map(([id, name]) => <option value={id} key={id}>{name}</option>)}
+          </select>
+          <input value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} required maxLength={500} placeholder="example.com" className="w-full border border-white/10 bg-black px-2 py-1 text-xs" />
+          <ErrorNotice error={create.error} />
+          <button disabled={!form.subject.trim() || create.isPending} className="w-full border border-white/20 py-1 text-[11px] disabled:opacity-40">{create.isPending ? "Создание…" : "Создать кейс"}</button>
+        </form>}
+        <ErrorNotice error={query.error} />
+        <More hasMore={!!query.hasNextPage} pending={query.isFetchingNextPage} load={() => query.fetchNextPage()} />
+      </div>
+    </WorkRail>
+    <main className="flex min-w-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+        <button onClick={() => setMain("case")} disabled={!selected} className={`border px-2 py-1 text-[11px] ${main === "case" ? "border-white/40 text-white" : "border-white/10 text-neutral-400"}`}>Кейс</button>
+        <button onClick={() => setMain("chat")} className={`border px-2 py-1 text-[11px] ${main === "chat" ? "border-white/40 text-white" : "border-white/10 text-neutral-400"}`}>Чат</button>
+        <button onClick={() => setRail(v => !v)} disabled={!selected} className="ml-auto text-neutral-500 hover:text-white disabled:opacity-40" aria-label="Материалы"><PanelRight className="h-4 w-4" /></button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {main === "chat" || !selected ? <ChatPanel domain="osint" /> : <CasePanel key={selected} id={selected} onDelete={() => setSelected(null)} />}
+      </div>
+    </main>
+    {rail && selected && main === "case" && <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-white/10 lg:flex">
+      <div className="border-b border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Материалы</div>
+      <div className="p-3"><Artifacts caseId={selected} /></div>
+    </aside>}
   </div>;
 }

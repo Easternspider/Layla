@@ -15,6 +15,7 @@ from app.schemas.osint import (
     ArtifactOut,
     CaseCreate,
     CaseOut,
+    CaseUpdate,
     LookupOut,
     ManualArtifactIn,
     SourceOut,
@@ -127,6 +128,20 @@ async def get_case(
     if row is None:
         raise HTTPException(404, "Кейс не найден")
     return _summary(row)
+
+
+@router.patch("/{case_id}", response_model=CaseOut)
+async def rename_case(
+    case_id: str,
+    body: CaseUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CaseOut:
+    case = await _owned(session, user.id, case_id, lock=True)
+    case.subject = CaseCreate(subject_type=case.subject_type, subject=body.subject).subject
+    await audit.record(session, actor=user.id, action="osint.case_rename", target=case_id)
+    await session.commit()
+    return await get_case(case_id, user, session)
 
 
 @router.delete("/{case_id}", status_code=204)

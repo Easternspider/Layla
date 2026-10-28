@@ -27,6 +27,7 @@ from app.schemas.project import (
     FileWrite,
     ProjectCreate,
     ProjectOut,
+    ProjectUpdate,
     RepoImport,
 )
 from app.services import audit, code_skills, files, jobs, repo, sandbox, trash
@@ -320,6 +321,19 @@ async def project_archive(
             "Content-Disposition": f"attachment; filename=project.zip; filename*=UTF-8''{filename}"
         },
     )
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+async def rename_project(
+    project_id: str,
+    body: ProjectUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Project:
+    project = await _owned_project(session, user, project_id)
+    project.name = body.name
+    await session.commit()
+    return project
 
 
 @router.delete("/{project_id}", status_code=204)

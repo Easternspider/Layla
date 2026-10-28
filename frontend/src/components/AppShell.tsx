@@ -2,7 +2,7 @@
 
 import { ActivityPanel } from "@/components/ActivityPanel";
 import Link from "next/link";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Settings2, ChevronDown } from "lucide-react";
 import { DOMAINS } from "@/lib/domains";
@@ -11,6 +11,7 @@ import { useLocale } from "@/store/locale";
 import { useLayout } from "@/store/layout";
 import { AuroraBackdrop } from "@/components/AuroraBackdrop";
 import { AuthGate } from "@/components/AuthGate";
+import { CommandPalette } from "@/components/CommandPalette";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -20,9 +21,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const t = useLocale((s) => s.t);
   const applyLayout = useLayout((s) => s.apply);
   const accountMenu = useRef<HTMLDetailsElement>(null);
+  const [palette, setPalette] = useState(false);
   const domain = DOMAINS.find((d) => pathname.startsWith(`/${d.slug}`));
   useEffect(() => { applyLayout(); }, [applyLayout]);
   useEffect(() => { if (accountMenu.current) accountMenu.current.open = false; }, [pathname]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const el = event.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPalette(true); return; }
+      if (typing || event.metaKey || event.ctrlKey || event.altKey || palette || document.querySelector("[role=dialog]")) return;
+      const index = Number(event.key) - 1;
+      if (index >= 0 && index < DOMAINS.length) router.push(`/${DOMAINS[index].slug}`);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [palette, router]);
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (accountMenu.current && !accountMenu.current.contains(event.target as Node)) accountMenu.current.open = false;
@@ -70,6 +84,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
         <main className="app-main"><div key={pathname} className="route-view">{children}</div></main>
+        <CommandPalette open={palette} close={() => setPalette(false)} />
       </div>
     </AuthGate>
   );

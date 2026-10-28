@@ -4,7 +4,7 @@ import { MarkdownResponse } from "@/components/MarkdownResponse";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Send, Bot, Plus, Loader2, Download, Square, Trash2, Eraser, Zap, ShieldCheck, ClipboardList, ChevronDown, Pencil, Check, Search, FoldVertical, Undo2, Play, SearchCheck, BookMarked, ListChecks, CircleCheck, CircleDot, Circle, X, Users, type LucideIcon } from "lucide-react";
+import { Send, Bot, Plus, Loader2, Download, Square, Trash2, Eraser, Zap, ShieldCheck, ClipboardList, ChevronDown, Pencil, Check, Search, FoldVertical, Undo2, Play, SearchCheck, BookMarked, ListChecks, CircleCheck, CircleDot, Circle, X, Users, Link2, type LucideIcon } from "lucide-react";
 import { ApiError, GIT_TOOLS, RUN_TOOLS, api, downloadProject, type FileContent, type Persona, type ModelInfo, type Chat, type ChatDetail, type FileChange, type Job, type ToolEvent } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import { FileDiff } from "@/components/FileDiff";
@@ -127,6 +127,15 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
     return () => window.removeEventListener("layla:open-chat", open);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domain, projectId, scope]);
+  useEffect(() => {
+    const fresh = (event: Event) => {
+      const value = (event as CustomEvent).detail;
+      if (value?.domain === domain && (value.project_id || "") === (projectId || "")) select(null);
+    };
+    window.addEventListener("layla:new-chat", fresh);
+    return () => window.removeEventListener("layla:new-chat", fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain, projectId]);
   const chatProject = detail.data?.project_id ?? null;
   // Каждый чат работает в своём каталоге на диске: сообщаем его наружу,
   // чтобы домен мог показать результат (превью) и открыть тот же проект в «Коде».
@@ -383,6 +392,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       {chatId && renaming === null && <button aria-label="Переименовать чат" title="Переименовать" onClick={() => setRenaming(detail.data?.title || "")} className="icon-button"><Pencil className="h-4 w-4" /></button>}
       {detail.data?.project_id && <button onClick={zip} className="icon-button" aria-label="Скачать файлы чата ZIP"><Download className="h-4 w-4" /></button>}
       {chatId && <button aria-label="Удалить чат" title="Удалить чат" onClick={removeChat} disabled={sending || removing || !ready} className="icon-button hover:bg-red-500/15 hover:text-red-300">{removing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button>}
+      {chatId && <button aria-label="Скопировать ссылку на чат" className="icon-button" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("chat", chatId); if (projectId) url.searchParams.set("project", projectId); navigator.clipboard.writeText(url.toString()).catch(() => undefined); }}><Link2 className="h-4 w-4" /></button>}
       <button aria-label="Новый чат" onClick={() => select(null)} disabled={sending || !ready} className="icon-button"><Plus className="h-5 w-5" /></button>
     </div>
     <div ref={scroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto p-5">

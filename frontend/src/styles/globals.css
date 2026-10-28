@@ -476,3 +476,4 @@ details,
   backdrop-filter: blur(18px);
 }
 .login-layout, .login-card, .login-intro { position: relative; z-index: 1; }
+.segmented-control, .segment, .app-topbar select { border-radius: 0; }

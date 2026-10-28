@@ -23,6 +23,11 @@ class CaseCreate(BaseModel):
         return self
 
 
+class CaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    subject: str = Field(min_length=1, max_length=500)
+
+
 class CaseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

@@ -18,6 +18,18 @@ class ProjectCreate(BaseModel):
         return value.strip()
 
 
+class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Укажите название проекта")
+        return value.strip()
+
+
 class RepoImport(BaseModel):
     repo_url: str = Field(min_length=1)
     name: str | None = None

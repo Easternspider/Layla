@@ -51,8 +51,10 @@ export function ActivityPanel() {
     if (!chat) window.dispatchEvent(new CustomEvent("layla:open-workspace", { detail: { domain: job.domain, design_id: job.result.design_id, job_id: job.id, engagement_id: job.result.engagement_id, run_id: job.result.run_id } }));
     if (chat) window.dispatchEvent(new CustomEvent("layla:open-chat", { detail: { id: chat, project_id: project, domain: job.domain } }));
   }
-  return <details ref={menu} className="relative">
-    <summary aria-label="Прогресс задач" className="flex cursor-pointer list-none items-center gap-2 rounded-full border border-ink-600/60 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">{running.length ? <Loader2 className="h-4 w-4 animate-spin text-accent-300" /> : <Activity className="h-4 w-4 text-neutral-400" />}<span className="hidden sm:inline">{isError ? "Нет связи" : "В работе"}</span><span aria-live="polite">{running.length}</span></summary>
+  const lead = running[0];
+  const leadLabel = lead ? `${labels[lead.domain] || lead.domain} · ${lead.title}` : (isError ? "Нет связи" : "Простой");
+  return <details ref={menu} className="relative max-w-[16rem]">
+    <summary aria-label="Прогресс задач" className="flex cursor-pointer list-none items-center gap-2 border border-white/10 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">{running.length ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-300" /> : <Activity className="h-4 w-4 shrink-0 text-neutral-400" />}<span className="hidden truncate sm:inline">{leadLabel}</span><span aria-live="polite">{running.length}</span></summary>
     <div className="fixed left-3 right-3 top-20 z-50 max-h-[70dvh] overflow-y-auto rounded-2xl border border-ink-600 bg-ink-900 p-3 shadow-floating sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-96">
       <p className="p-2 text-sm font-semibold">Задачи во всех разделах</p>
       {isError && <p role="alert" className="p-2 text-xs text-red-300">Не удалось обновить прогресс. Повторяем подключение…</p>}

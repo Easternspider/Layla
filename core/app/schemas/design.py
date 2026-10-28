@@ -63,3 +63,7 @@ class DesignOut(BaseModel):
     project_id: str | None = None  # проект домена «Код», если макет отдан в разработку
 
     model_config = {"from_attributes": True}
+
+
+class DesignRename(BaseModel):
+    title: str = Field(min_length=1, max_length=200)

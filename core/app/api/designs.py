@@ -22,7 +22,7 @@ from app.models.job import Job
 from app.models.provider import Provider
 from app.models.user import Project, User, Workspace
 from app.schemas.chat import ChatOut
-from app.schemas.design import DesignCreate, DesignOut
+from app.schemas.design import DesignCreate, DesignOut, DesignRename
 from app.schemas.job import JobOut
 from app.schemas.project import ProjectOut
 from app.services import audit, design_gen, jobs, project_agent, provider_client, trash
@@ -86,6 +86,19 @@ async def get_design(
     design = await session.get(Design, design_id)
     if design is None or design.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Дизайн не найден")
+    return design
+
+
+@router.patch("/{design_id}", response_model=DesignOut)
+async def rename_design(
+    design_id: str,
+    body: DesignRename,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Design:
+    design = await get_design(design_id, user, session)
+    design.brief = {**(design.brief or {}), "title": body.title.strip()}
+    await session.commit()
     return design
 
 
