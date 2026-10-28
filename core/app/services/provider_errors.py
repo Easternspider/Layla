@@ -265,5 +265,6 @@ async def retry_request(request, *, on_retry=None, timeout=None):
                 raise
             delay = retry_delay(exc, attempt + 1)
             if on_retry:
-                await on_retry({"attempt": attempt + 1, "max": len(RETRY_DELAYS), "delay": delay})
+                await on_retry({"attempt": attempt + 1, "max": len(RETRY_DELAYS), "delay": delay,
+                                "error": str(exc)[:400]})
             await asyncio.sleep(delay)

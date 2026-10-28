@@ -132,6 +132,26 @@ async def test_final_message_is_kept_when_codex_does_not_stream_deltas(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_codex_text_is_kept_when_the_stream_closes_without_completed(monkeypatch):
+    real = httpx.AsyncClient
+    message = {"type": "message", "role": "assistant", "content": [
+        {"type": "output_text", "text": '{"action":"read_authorization"}'}]}
+
+    def handle(request):
+        event = {"type": "response.output_item.done", "output_index": 0, "item": message}
+        return httpx.Response(200, text="data: " + json.dumps(event) + "\n\n")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handle), **kw))
+    text = await provider_client.complete(
+        Provider(name="Codex", base_url=codex_oauth.BASE_URL),
+        codex_oauth.wire_key({"access_token": "tok", "account_id": "acct_1"}),
+        "gpt-6-luna",
+        [{"role": "user", "content": "go"}],
+    )
+    assert text == '{"action":"read_authorization"}'
+
+
+@pytest.mark.asyncio
 async def test_wrong_base_is_refused():
     provider = Provider(name="Codex", base_url="https://api.openai.com/v1")
     with pytest.raises(ProviderError):

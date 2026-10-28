@@ -404,5 +404,6 @@ async def stream_chat_with_retry(provider, key, model, messages):
             if shown:
                 yield "retract", shown
             delay = provider_errors.retry_delay(exc, attempt + 1)
-            yield "retry", {"attempt": attempt + 1, "max": len(provider_errors.RETRY_DELAYS), "delay": delay}
+            yield "retry", {"attempt": attempt + 1, "max": len(provider_errors.RETRY_DELAYS), "delay": delay,
+                            "error": str(exc)[:400]}
             await asyncio.sleep(delay)

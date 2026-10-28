@@ -152,11 +152,20 @@ async def stream_turn(provider, key, model, messages, tools, caps=None, *, base_
                         raise OutputLimitError(f"Ответ {label} не поместился в лимит длины", has_calls=bool(calls))
                     raise ProviderError(f"{label} не завершил ответ")
                 elif kind in ("error", "response.failed") or event.get("error"):
-                    raise ProviderError(f"{label} прервал ответ ошибкой", retryable=True)
+                    detail = event.get("error") or (event.get("response") or {}).get("error") or {}
+                    message = detail.get("message") if isinstance(detail, dict) else str(detail or "")
+                    message = " ".join(str(message).split())[:300]
+                    text = f"{label} прервал ответ: {message}" if message else f"{label} прервал ответ ошибкой"
+                    raise ProviderError(text, retryable=True)
                 if len(calls) > 48:
                     raise ProviderError(f"{label} запросил слишком много инструментов")
     if not completed:
-        raise ProviderError(f"Связь с {label} оборвалась посреди ответа", retryable=True)
+        # Codex can deliver the whole answer in one item and then close the stream
+        # without response.completed. A partial tool call is still a dropped turn.
+        if saw_text and not calls:
+            completed = True
+        else:
+            raise ProviderError(f"Связь с {label} оборвалась посреди ответа", retryable=True)
     batch = []
     for item in calls.values():
         arguments = item.get("arguments") or "{}"
