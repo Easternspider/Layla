@@ -668,6 +668,7 @@ export interface AgentRun {
   task: string;
   mode: string;
   model?: string | null;
+  provider_id?: string | null;
   status: string;
   budget_used: Record<string, unknown>;
   steps: AgentStep[];

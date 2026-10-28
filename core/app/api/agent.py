@@ -112,6 +112,17 @@ async def _pick_model(session: AsyncSession, user: User, requested: str | None) 
     raise HTTPException(status_code=400, detail="Нет активной модели. Включите модель в настройках провайдера.")
 
 
+async def _bind_provider(session: AsyncSession, user: User, provider_id: str | None) -> str | None:
+    """Keep an explicit account. Never substitute a different provider for the same model name."""
+    if not provider_id:
+        return None
+    from app.models.provider import Provider
+    provider = await session.get(Provider, provider_id)
+    if provider is None or provider.owner_id != user.id or not provider.enabled or not provider.active:
+        raise HTTPException(status_code=400, detail="Выбранный провайдер недоступен")
+    return provider.id
+
+
 async def _worker_out(session, worker, *, details=False):
     item = WorkerOut.model_validate(worker)
     job = await session.get(Job, worker.job_id, populate_existing=True) if worker.job_id else None
@@ -691,6 +702,8 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
         if body.model:
             leader.model = await _pick_model(session, user, body.model)
         run.model = leader.model
+        if body.provider_id:
+            run.provider_id = await _bind_provider(session, user, body.provider_id)
         job = Job(owner_id=user.id, domain='pentest', kind='pentest.worker', title=body.content[:200],
             status='queued', result={'engagement_id': eid, 'run_id': run.id, 'worker_id': leader.id})
         session.add(job)
@@ -699,7 +712,8 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
     else:
         model = await _pick_model(session, user, body.model)
         run = AgentRun(owner_id=user.id, domain=Domain.pentest, engagement_id=eid,
-            task=body.content, model=model, status=AgentRunStatus.running, budget_used={'max_workers': 3})
+            task=body.content, model=model, provider_id=await _bind_provider(session, user, body.provider_id),
+            status=AgentRunStatus.running, budget_used={'max_workers': 3})
         session.add(run)
         await session.flush()
         leader = (await pentest_workers.reserve(session, run, [{'task': body.content, 'role': 'lead'}], lead=True))[0]

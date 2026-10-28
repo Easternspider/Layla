@@ -38,6 +38,7 @@ class AgentChatCreate(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
     run_id: str | None = None
     model: str | None = None
+    provider_id: str | None = None
     mode: Literal["auto", "confirm", "plan"] = "auto"
 
 
@@ -66,6 +67,7 @@ class AgentRunOut(BaseModel):
     task: str
     mode: str
     model: str | None = None
+    provider_id: str | None = None
     status: str
     budget_used: dict = {}
     steps: list[AgentStepOut] = []

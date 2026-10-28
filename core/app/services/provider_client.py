@@ -160,9 +160,18 @@ async def pick_key(session: AsyncSession, provider: Provider) -> str | None:
 
 
 async def resolve_provider(
-    session: AsyncSession, owner_id: str, model: str
+    session: AsyncSession, owner_id: str, model: str, provider_id: str | None = None,
 ) -> Provider | None:
-    """Найти активный провайдер, которому принадлежит модель."""
+    """Найти активный провайдер, которому принадлежит модель.
+
+    Явный provider_id не подменяется другим аккаунтом: одинаковое имя модели
+    (например gpt-6-luna у Codex и у ключа API) остаётся на выбранном профиле.
+    """
+    if provider_id:
+        chosen = await session.get(Provider, provider_id)
+        if chosen is None or chosen.owner_id != owner_id or not chosen.enabled or not chosen.active:
+            return None
+        return chosen
     providers = list(
         await session.scalars(
             select(Provider).where(

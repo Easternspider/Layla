@@ -32,6 +32,26 @@ async def test_models_fallback_to_default(client):
 
 
 @pytest.mark.asyncio
+async def test_same_model_name_stays_on_the_selected_provider(client, db_sessionmaker):
+    from sqlalchemy import select
+    from app.models.user import User
+    await client.post("/api/auth/register", json={"email": "route@example.com", "password": "hunter2hunter2"})
+    other = (await client.post("/api/providers", json={
+        "name": "Other", "kind": "openai_compatible", "base_url": "https://api.openai.com/v1", "active": True})).json()
+    codex = (await client.post("/api/providers", json={
+        "name": "Codex (аккаунт)", "kind": "openai_compatible",
+        "base_url": "https://chatgpt.com/backend-api/codex", "active": True})).json()
+    for pid in (other["id"], codex["id"]):
+        saved = await client.put(f"/api/providers/{pid}/models", json={"models": [{"name": "gpt-6-luna", "enabled": True}]})
+        assert saved.status_code == 200
+    async with db_sessionmaker() as session:
+        user = await session.scalar(select(User).where(User.email == "route@example.com"))
+        chosen = await pc.resolve_provider(session, user.id, "gpt-6-luna", codex["id"])
+    assert chosen is not None and chosen.id == codex["id"]
+    assert chosen.base_url == "https://chatgpt.com/backend-api/codex"
+
+
+@pytest.mark.asyncio
 async def test_fetch_and_toggle_models(client, monkeypatch):
     pid = await _setup(client)
 

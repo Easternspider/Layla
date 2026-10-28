@@ -26,6 +26,7 @@ class AgentRun(UUIDPk, Timestamps, Base):
     task: Mapped[str] = mapped_column(Text, default="")
     mode: Mapped[str] = mapped_column(String(20), default="interactive")  # interactive|autonomous
     model: Mapped[str | None] = mapped_column(String(200))
+    provider_id: Mapped[str | None] = mapped_column(String(36))
     persona_id: Mapped[str | None] = mapped_column(String(36))
     status: Mapped[AgentRunStatus] = mapped_column(default=AgentRunStatus.queued)
     trace_ref: Mapped[str | None] = mapped_column(String(200))
