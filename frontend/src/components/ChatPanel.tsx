@@ -103,6 +103,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
     generation.current++;
     setChatId(id); setError(null); setPersonaId("");
     remember(scope, id || "new");
+    window.dispatchEvent(new CustomEvent("layla:chat-selected", { detail: { domain, id } }));
     setInput(read(`${scope}:draft:${id || "new"}`) || "");
   }
   useEffect(() => {

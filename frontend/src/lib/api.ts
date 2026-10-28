@@ -201,6 +201,7 @@ export interface Chat {
   persona_id?: string | null;
   model?: string | null;
   provider_id?: string | null;
+  server_ids?: string[];
 }
 
 export interface ChatMessage {

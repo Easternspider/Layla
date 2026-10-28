@@ -29,6 +29,8 @@ class Chat(UUIDPk, Timestamps, Base):
     model: Mapped[str | None] = mapped_column(String(200))
     # Выбранный провайдер: имя модели бывает у нескольких провайдеров.
     provider_id: Mapped[str | None] = mapped_column(ForeignKey("providers.id", ondelete="SET NULL"))
+    # Пустой список — агент видит все серверы аккаунта. Иначе только эти id.
+    server_ids: Mapped[list | None] = mapped_column(JSONList, default=list)
     # Корзина: не пусто — чат удалён и через 7 дней будет стёрт окончательно.
     deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 

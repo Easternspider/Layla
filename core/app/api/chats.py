@@ -28,6 +28,7 @@ from app.api.projects import _default_workspace, _owned_project, _project_root
 from app.config import get_settings
 from app.db import get_session, get_sessionmaker
 from app.models.chat import Chat, Checkpoint, Message
+from app.models.pentest import Server
 from app.models.code_session import CodeLeadEntry, CodeLeadTurn
 from app.models.code_team import CodeTranscript
 from app.models.code_worker import CodeWorker
@@ -43,6 +44,7 @@ from app.schemas.chat import (
     ChatDetail,
     ChatOut,
     ChatRename,
+    ChatServers,
     ClearChatsOut,
     MessageOut,
     RollbackOut,
@@ -453,6 +455,29 @@ async def rename_chat(
 ) -> Chat:
     chat = await _owned_chat(session, user, chat_id)
     chat.title = body.title.strip()
+    await session.commit()
+    return chat
+
+
+@router.put("/{chat_id}/servers", response_model=ChatOut)
+async def set_chat_servers(
+    chat_id: str,
+    body: ChatServers,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Chat:
+    chat = await _owned_chat(session, user, chat_id)
+    if chat.domain != Domain.agent:
+        raise HTTPException(status_code=400, detail="Серверы выбираются только в домене Агент")
+    chosen = []
+    for sid in body.server_ids:
+        if sid in chosen:
+            continue
+        server = await session.get(Server, sid)
+        if server is None or server.owner_id != user.id:
+            raise HTTPException(status_code=404, detail="Сервер не найден")
+        chosen.append(sid)
+    chat.server_ids = chosen
     await session.commit()
     return chat
 
@@ -1078,7 +1103,7 @@ async def run_chat(
             if transcript is not None:
                 messages = await transcript.load(messages)
             engine = code_lead.run if runtime is not None else project_agent.run
-            ops = agent_ops.Ops(maker, owner_id) if domain == "agent" else None
+            ops = agent_ops.Ops(maker, owner_id, list(chat.server_ids or [])) if domain == "agent" else None
             async with aclosing(engine(prov, key, model, messages, root, permissions,
                                                  mode=mode, approve=approve, caps=caps, extra=extra,
                                                  runner=runner, git=git, mcp=mcp, runtime=runtime, workers=workers,

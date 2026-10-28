@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import Domain
 from app.schemas.job import JobOut
@@ -26,8 +26,14 @@ class ChatOut(BaseModel):
     model: str | None = None
     provider_id: str | None = None
     project_id: str | None = None
+    server_ids: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+    @field_validator("server_ids", mode="before")
+    @classmethod
+    def _servers(cls, value):
+        return list(value or [])
 
 
 class MessageOut(BaseModel):
@@ -61,6 +67,10 @@ class DecisionRequest(BaseModel):
 
 class ChatRename(BaseModel):
     title: str = Field(min_length=1, max_length=300)
+
+
+class ChatServers(BaseModel):
+    server_ids: list[str] = Field(default_factory=list, max_length=32)
 
 
 class RollbackOut(BaseModel):

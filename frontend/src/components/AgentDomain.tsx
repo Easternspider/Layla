@@ -15,9 +15,23 @@ export function AgentDomain() {
   const [pins, setPins] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ host: "", port: 22, user: "root", auth: "key" as "key" | "password", private_key: "", password: "" });
+  const [chatId, setChatId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPins(loadPins("layla:agent:pinned")); }, []);
   useEffect(() => { try { localStorage.setItem("layla:agent:pinned", JSON.stringify(pins)); } catch { /* ignore */ } }, [pins]);
+  useEffect(() => {
+    if (!owner) return;
+    try {
+      const stored = localStorage.getItem(`layla:chat:${owner}:agent:`);
+      if (stored && stored !== "new") setChatId(stored);
+    } catch { /* ignore */ }
+    const choose = (event: Event) => {
+      const detail = (event as CustomEvent<{ domain?: string; id?: string | null }>).detail;
+      if (detail?.domain === "agent") setChatId(detail.id || null);
+    };
+    window.addEventListener("layla:chat-selected", choose);
+    return () => window.removeEventListener("layla:chat-selected", choose);
+  }, [owner]);
   const chats = useQuery({
     queryKey: ["chats", owner, "agent", undefined],
     enabled: !!owner,
@@ -30,6 +44,12 @@ export function AgentDomain() {
     refetchInterval: 2000,
   });
   const servers = useQuery({ queryKey: ["servers"], queryFn: () => api.get<PentestServer[]>("/servers") });
+  const chosen = chats.data?.find(chat => chat.id === chatId)?.server_ids || [];
+  const setServers = useMutation({
+    mutationFn: (server_ids: string[]) => api.put(`/chats/${chatId}/servers`, { server_ids }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["chats", owner, "agent", undefined] }),
+    onError: err => setError(err instanceof Error ? err.message : "Выбор серверов не сохранился"),
+  });
   const create = useMutation({
     mutationFn: () => api.post<Chat>("/chats", { domain: "agent", title: "Новая задача" }),
     onSuccess: chat => {
@@ -94,10 +114,18 @@ export function AgentDomain() {
         {error && <p className="text-xs text-red-300">{error}</p>}
       </form>}
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
-        {(servers.data || []).map(server => <div key={server.id} className="rounded-xl px-2 py-2 hover:bg-white/[0.04]">
-          <p className="truncate text-sm">{server.user}@{server.host}</p>
-          <p className="text-[11px] text-neutral-500">{server.port} · {server.auth === "password" ? "пароль" : "ключ"} · {server.status}</p>
-        </div>)}
+        <p className="px-2 pb-1 text-[11px] leading-4 text-neutral-500">{chatId ? (chosen.length ? "Задача работает только с отмеченными серверами." : "Ничего не отмечено: агент видит все серверы. Отметьте один или несколько, чтобы ограничить задачу.") : "Откройте задачу, чтобы выбрать серверы."}</p>
+        {error && !adding && <p className="px-2 text-xs text-red-300">{error}</p>}
+        {(servers.data || []).map(server => <label key={server.id} className="flex items-start gap-2 rounded-xl px-2 py-2 hover:bg-white/[0.04]">
+          <input aria-label={`Сервер ${server.host}`} type="checkbox" className="mt-1" disabled={!chatId || setServers.isPending} checked={chosen.includes(server.id)} onChange={() => {
+            const next = chosen.includes(server.id) ? chosen.filter(id => id !== server.id) : [...chosen, server.id];
+            setServers.mutate(next);
+          }} />
+          <span className="min-w-0">
+            <p className="truncate text-sm">{server.user}@{server.host}</p>
+            <p className="text-[11px] text-neutral-500">{server.port} · {server.auth === "password" ? "пароль" : "ключ"} · {server.status}</p>
+          </span>
+        </label>)}
         {!servers.data?.length && <p className="px-2 text-xs text-neutral-500">Добавьте сервер, и агент сможет проверить его и поставить пакеты.</p>}
       </div>
     </aside>

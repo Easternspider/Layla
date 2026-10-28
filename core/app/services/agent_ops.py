@@ -137,9 +137,21 @@ def read_command(path: str) -> str:
 
 
 class Ops:
-    def __init__(self, maker, owner_id: str):
+    def __init__(self, maker, owner_id: str, server_ids: list[str] | None = None):
         self.maker = maker
         self.owner_id = owner_id
+        self.server_ids = [item for item in (server_ids or []) if item]
+
+    def allows(self, server_id: str) -> bool:
+        return not self.server_ids or server_id in self.server_ids
+
+    def scope_note(self) -> str:
+        if not self.server_ids:
+            return ""
+        return (
+            "Эта задача строго ограничена выбранными серверами. "
+            "list_servers показывает только их. Команды на остальные серверы аккаунта запрещены."
+        )
 
     def tools(self):
         return list(TOOLS)
@@ -152,6 +164,8 @@ class Ops:
         server = await session.scalar(select(Server).where(Server.id == server_id, Server.owner_id == self.owner_id))
         if server is None or not server.secret_ref:
             raise ValueError("Сервер не найден среди сохранённых серверов этого аккаунта")
+        if not self.allows(server.id):
+            raise ValueError("Этот сервер не выбран для задачи. Можно работать только с отмеченными.")
         return server
 
     async def _run(self, session, server: Server, command: str) -> dict:
@@ -181,7 +195,10 @@ class Ops:
         async with self.maker() as session:
             if name == "list_servers":
                 rows = list(await session.scalars(select(Server).where(Server.owner_id == self.owner_id)))
-                return {"servers": [{"id": row.id, "host": row.host, "port": row.port, "user": row.user,
+                if self.server_ids:
+                    rows = [row for row in rows if row.id in self.server_ids]
+                return {"scope": "selected" if self.server_ids else "all",
+                        "servers": [{"id": row.id, "host": row.host, "port": row.port, "user": row.user,
                                      "status": row.status.value if hasattr(row.status, "value") else str(row.status)} for row in rows]}
             server = await self._server(session, args.server_id)
             if name == "server_command":

@@ -888,6 +888,8 @@ async def run(
     if ops is not None:
         from app.services.agent_ops import NOTE as agent_note
         prompt += "\n\n" + agent_note
+        if ops.scope_note():
+            prompt += "\n" + ops.scope_note()
     if caps.get("tools") is False:
         prompt += NO_TOOLS_NOTE
     if "lsp" in allowed_names:
