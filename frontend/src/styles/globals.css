@@ -160,7 +160,9 @@
 .app-shell[data-domain="pentest"] { --glow-a: 255 110 145; --glow-b: 255 176 90; --glow-c: 150 130 255; }
 .app-shell[data-domain="code"] { --glow-a: 120 150 255; --glow-b: 70 200 190; --glow-c: 170 130 255; }
 .app-shell[data-domain="design"] { --glow-a: 190 130 255; --glow-b: 255 130 175; --glow-c: 130 170 255; }
-.app-topbar, .app-main { position: relative; z-index: 1; }
+.app-topbar { position: relative; z-index: 50 !important; overflow: visible; }
+.app-topbar details { overflow: visible !important; background: transparent !important; border-radius: 0 !important; }
+.app-main { z-index: 1; }
 @keyframes aurora-spin { to { transform: rotate(1turn); } }
 @keyframes aurora-grain { to { background-position: 80px 40px; } }
 .settings-sidebar { border: 1px solid rgb(132 146 174 / .12); box-shadow: inset 0 1px 0 rgb(255 255 255 / .04); }
