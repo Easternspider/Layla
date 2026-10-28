@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -184,15 +183,15 @@ private fun ListScreen(api: LaylaApi, section: Section, back: () -> Unit, open: 
         if (busy) CircularProgressIndicator()
         error?.let { Text(it, color = Color(0xFFFF8A80)) }
         rows.forEach { row ->
+            val id = row.optString("id")
+            val kind = section.open
             val title = labelOf(row)
             Text(title, color = Color.White, modifier = Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).clickable {
-                val id = row.optString("id")
-                when (section.open) {
+                when (kind) {
                     "chat" -> if (id.isNotBlank()) open(Chat(id, title))
-                    "trash-chat" -> if (id.isNotBlank()) open(Record("trash-chat", id, title))
-                    "trash-project" -> if (id.isNotBlank()) open(Record("trash-project", id, title))
+                    "trash-chat", "trash-project" -> if (id.isNotBlank()) open(Record(kind, id, title))
                     null -> Unit
-                    else -> if (id.isNotBlank()) open(Record(section.open, id, title))
+                    else -> if (id.isNotBlank()) open(Record(kind, id, title))
                 }
             }.padding(14.dp))
         }
