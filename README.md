@@ -36,7 +36,7 @@ and **M2** (Design + Knowledge + MCP + Telegram), **M3** (OSINT) and
 Remaining M0–M2 spec gaps are tracked explicitly in [the roadmap](docs/ROADMAP.md).
 
 **Included now**
-- Monorepo layout: `frontend/` · `core/` · `deploy/`.
+- Monorepo layout: `frontend/` · `core/` · `android/` · `deploy/`.
 - Docker Compose dev stack: frontend, core, LiteLLM, Postgres (+pgvector),
   Redis, Caddy.
 - **Backend (`core`)** — FastAPI, async SQLAlchemy 2, Pydantic v2:
