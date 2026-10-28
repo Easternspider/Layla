@@ -116,6 +116,51 @@ async def perform(url: str, host: str, address: str, max_bytes: int, *, verify: 
     return response.status_code, response.headers.get('content-type', ''), body, headers
 
 
+async def browser_exchange(method: str, url: str, body: str, content_type: str, cookie: str,
+                           allow: list[str], deny: list[str]) -> dict:
+    """One Chrome-shaped request to an in-scope target. Same impersonation as public web fetch."""
+    method = (method or 'GET').strip().upper()
+    if method not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'}:
+        raise ValueError('Метод browser_request: GET, POST, PUT, PATCH или DELETE')
+    if len(body) > 32000:
+        raise ValueError('Тело запроса длиннее 32 КБ')
+    if cookie and any(ord(c) < 32 for c in cookie):
+        raise ValueError('Cookie содержит недопустимые символы')
+    parsed = urlsplit(url)
+    if (len(url) > 4096 or parsed.scheme != 'https' or not parsed.hostname or parsed.username
+            or parsed.password or parsed.port not in (None, 443) or any(ord(c) < 32 for c in url)):
+        raise ValueError('browser_request только на https:443 цели из scope')
+    host = parsed.hostname.rstrip('.').lower()
+    decision = check_target(host, allow, deny)
+    if not decision.allowed:
+        raise ValueError(decision.reason)
+    addresses = await public_addresses(host)
+    from curl_cffi import CurlOpt
+    from curl_cffi.requests import AsyncSession
+    headers = {}
+    if body and method != 'GET':
+        headers['Content-Type'] = (content_type or 'application/json')[:120]
+    if cookie:
+        headers['Cookie'] = cookie[:4000]
+    options = {CurlOpt.RESOLVE: [f'{host}:443:{addresses[0]}'], CurlOpt.MAXFILESIZE_LARGE: MAX_BYTES}
+    try:
+        async with AsyncSession(impersonate='chrome', curl_options=options) as session:
+            response = await session.request(method, url, data=body.encode() if body else None,
+                                             headers=headers or None, allow_redirects=False, timeout=20,
+                                             default_headers=True)
+    except Exception as exc:
+        raise OSError('цель не ответила на браузерный запрос') from exc
+    raw = response.content[:20000]
+    interesting = {}
+    for key in ('content-type', 'location', 'set-cookie'):
+        value = response.headers.get(key)
+        if value:
+            interesting[key] = str(value)[:500]
+    return {'status': response.status_code, 'url': url, 'method': method, 'headers': interesting,
+            'body': raw.decode('utf-8', 'replace'), 'truncated': len(response.content) > 20000,
+            'note': 'Запрос ушёл с отпечатком Chrome, как web fetch, и только на хост из scope. Это не curl.'}
+
+
 async def fetch(url: str, blocked: list[str] = (), *, max_bytes: int = MAX_BYTES) -> dict:
     """Pin the validated IP; keep the original hostname for TLS and the Host header."""
     async with asyncio.timeout(30):
