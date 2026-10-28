@@ -6,6 +6,12 @@ from app.services import inbox
 from app.services.pentest_workers import Action
 
 
+def _clean():
+    inbox._issued.clear()
+    inbox._cursor = 0
+    inbox._STORE.unlink(missing_ok=True)
+
+
 @pytest.mark.asyncio
 async def test_create_and_read_mailbox(monkeypatch):
     assert Action.model_validate({"action": "create_inbox"}).action == "create_inbox"
@@ -27,6 +33,7 @@ async def test_create_and_read_mailbox(monkeypatch):
 
     real = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    _clean()
     created = await inbox.create_inbox()
     assert created["address"].endswith("@example.test")
     assert created["password"]
@@ -52,16 +59,16 @@ async def test_create_inbox_skips_a_rejected_domain(monkeypatch):
 
     real = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    _clean()
     created = await inbox.create_inbox("blocked.test")
     assert created["domain"] == "fresh.test"
-    again = await inbox.create_inbox()
-    assert again["domain"] == "blocked.test"
+    with pytest.raises(ValueError):
+        await inbox.create_inbox()
 
 
 @pytest.mark.asyncio
 async def test_mailbox_providers_are_tried_in_turn(monkeypatch):
-    inbox._cursor = 0
-    inbox._issued.clear()
+    _clean()
     seen = []
 
     def serve(request: httpx.Request) -> httpx.Response:
@@ -85,6 +92,30 @@ async def test_mailbox_providers_are_tried_in_turn(monkeypatch):
     second = await inbox.create_inbox()
     assert second["provider"] == "guerrilla" and second["password"] == "guerrilla:sid"
     assert "api.mail.tm" not in seen
+
+
+@pytest.mark.asyncio
+async def test_rejected_domain_is_not_issued_again(monkeypatch):
+    _clean()
+
+    def serve(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.tempmail.lol" and request.url.path.endswith("/create"):
+            return httpx.Response(201, json={"address": "again@maxxspace.com", "token": "tok"})
+        if request.url.path == "/domains":
+            return httpx.Response(200, json=[{"domain": "maxxspace.com", "isActive": True}, {"domain": "other.test", "isActive": True}])
+        if request.url.path == "/accounts":
+            return httpx.Response(201, json={})
+        if request.url.path == "/token":
+            return httpx.Response(200, json={"token": "fixture-token"})
+        return httpx.Response(404)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    created = await inbox.create_inbox("цель снова отклонила домен maxxspace.com")
+    assert created["domain"] == "other.test"
+    assert "maxxspace.com" in inbox._STORE.read_text()
+    with pytest.raises(ValueError):
+        await inbox.create_inbox()
 
 
 @pytest.mark.asyncio
