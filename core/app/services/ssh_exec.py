@@ -20,6 +20,30 @@ CONNECT_TIMEOUT = 15
 COMMAND_TIMEOUT = 3600  # c: потолок на одну команду (долгие сканы/эксплойты); вывод буферизуется, не стримится
 MAX_OUTPUT = 200_000  # байт вывода команды, дальше обрезается
 
+# step id -> live SSH sessions. Stop closes them; a detached remote process may survive.
+_live: dict[str, list] = {}
+_stopped: set[str] = set()
+
+
+class _Live:
+    def __init__(self) -> None:
+        self.conn = None
+        self.stopped = False
+
+
+def interrupt(step_ids) -> None:
+    """Close SSH sessions for these command steps. Safe if none are running."""
+    for key in step_ids:
+        _stopped.add(key)
+        for session in list(_live.get(key, ())):
+            session.stopped = True
+            if session.conn is not None:
+                session.conn.close()
+
+
+def _stopped_error() -> SSHError:
+    return SSHError("Команда остановлена оператором. Если процесс был отвязан от SSH, он мог продолжиться на сервере.")
+
 
 class SSHError(RuntimeError):
     """Не удалось подключиться или выполнить команду — текст для оператора."""
@@ -131,10 +155,22 @@ async def probe(cfg: SSHConfig) -> SSHResult:
         await conn.wait_closed()
 
 
-async def run(cfg: SSHConfig, command: str, timeout: int = COMMAND_TIMEOUT) -> SSHResult:
+async def run(cfg: SSHConfig, command: str, timeout: int = COMMAND_TIMEOUT, interrupt_key: str | None = None) -> SSHResult:
     """Выполнить команду на attack box и вернуть объединённый вывод (stdout+stderr)."""
-    conn, host_key = await _connect(cfg)
+    if interrupt_key and interrupt_key in _stopped:
+        _stopped.discard(interrupt_key)
+        raise _stopped_error()
+    session = _Live()
+    if interrupt_key:
+        _live.setdefault(interrupt_key, []).append(session)
+    conn = None
     try:
+        if session.stopped:
+            raise _stopped_error()
+        conn, host_key = await _connect(cfg)
+        session.conn = conn
+        if session.stopped or (interrupt_key and interrupt_key in _stopped):
+            raise _stopped_error()
         try:
             result = await conn.run(command, timeout=timeout, check=False)
         except asyncssh.TimeoutError as exc:
@@ -146,6 +182,10 @@ async def run(cfg: SSHConfig, command: str, timeout: int = COMMAND_TIMEOUT) -> S
             tail = partial[-8000:]
             suffix = f" Частичный вывод до остановки:\n{tail}" if tail.strip() else " Частичного вывода не получено."
             raise SSHError(f"Команда не завершилась за {timeout} c.{suffix}") from exc
+        except (asyncssh.Error, OSError) as exc:
+            if session.stopped or (interrupt_key and interrupt_key in _stopped):
+                raise _stopped_error() from exc
+            raise
         stdout = result.stdout or ""
         stderr = result.stderr or ""
         combined = stdout if not stderr else f"{stdout}\n{stderr}" if stdout else stderr
@@ -157,5 +197,13 @@ async def run(cfg: SSHConfig, command: str, timeout: int = COMMAND_TIMEOUT) -> S
             host_key=host_key,
         )
     finally:
-        conn.close()
-        await conn.wait_closed()
+        if interrupt_key:
+            sessions = _live.get(interrupt_key, [])
+            if session in sessions:
+                sessions.remove(session)
+            if not sessions:
+                _live.pop(interrupt_key, None)
+            _stopped.discard(interrupt_key)
+        if conn is not None:
+            conn.close()
+            await conn.wait_closed()

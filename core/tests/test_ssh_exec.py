@@ -25,7 +25,7 @@ async def test_attack_box_runner_never_returns_empty_output(monkeypatch):
 
     from app.api import agent as agentmod
 
-    async def fake_run(cfg, command, timeout=agentmod.ssh_exec.COMMAND_TIMEOUT):
+    async def fake_run(cfg, command, timeout=agentmod.ssh_exec.COMMAND_TIMEOUT, interrupt_key=None):
         return agentmod.ssh_exec.SSHResult(exit_code=0, output='   \n', truncated=False, host_key='k')
 
     monkeypatch.setattr(agentmod.ssh_exec, 'run', fake_run)
@@ -252,7 +252,7 @@ async def test_parallel_approval_and_denial_cannot_duplicate_or_hide_running_com
         await asyncio.wait_for(entered.wait(), 5)
         assert (await client.post(f'/api/agent/steps/{step_id}/approve')).status_code == 409
         assert (await client.post(f'/api/agent/steps/{step_id}/deny')).status_code == 409
-        assert (await client.post(f'/api/agent/runs/{run_id}/stop')).status_code == 409
+        assert (await client.post(f'/api/agent/runs/{run_id}/stop')).status_code == 200
     finally:
         release.set()
         result = await first
@@ -278,3 +278,33 @@ async def test_stopped_run_cannot_execute_an_old_pending_step(client, db_session
     monkeypatch.setattr(ssh_exec, 'run', forbidden)
     assert (await client.post(f'/api/agent/runs/{run_id}/stop')).status_code == 200
     assert (await client.post(f'/api/agent/steps/{step_id}/approve')).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_interrupt_stops_before_connect(monkeypatch):
+    async def no_connect(*_args, **_kwargs):
+        raise AssertionError("connect")
+
+    monkeypatch.setattr(ssh_exec, "_connect", no_connect)
+    ssh_exec.interrupt(["step-x"])
+    cfg = ssh_exec.SSHConfig(host="h", port=22, user="u", auth="password", secret="x", host_key=None)
+    with pytest.raises(ssh_exec.SSHError, match="остановлена"):
+        await ssh_exec.run(cfg, "id", interrupt_key="step-x")
+
+
+def test_interrupt_closes_open_session():
+    class Conn:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    conn = Conn()
+    session = ssh_exec._Live()
+    session.conn = conn
+    ssh_exec._live["step-y"] = [session]
+    ssh_exec.interrupt(["step-y"])
+    assert session.stopped and conn.closed
+    ssh_exec._live.pop("step-y", None)
+    ssh_exec._stopped.discard("step-y")

@@ -50,7 +50,7 @@ def _ssh_config(server: Server) -> ssh_exec.SSHConfig:
     )
 
 
-def _attack_box_runner(server: Server | None, worker_directory: str | None = None):
+def _attack_box_runner(server: Server | None, worker_directory: str | None = None, interrupt_key: str | None = None):
     """runner для venue_executor + ячейка, куда попадёт ключ хоста для закрепления.
 
     None → исполнителя нет (venue_executor поднимет NoExecutorConfigured за гейтами)."""
@@ -63,7 +63,7 @@ def _attack_box_runner(server: Server | None, worker_directory: str | None = Non
         if worker_directory:
             # The directory is built only from UUIDs by pentest_workers.remote_directory.
             command = f'umask 077; layla_worker_dir="${{HOME:?}}/{worker_directory}"; mkdir -p -- "$layla_worker_dir" && cd -- "$layla_worker_dir" && (\n{command}\n)'
-        result = await ssh_exec.run(cfg, command)
+        result = await ssh_exec.run(cfg, command, interrupt_key=interrupt_key)
         pin["host_key"] = result.host_key
         if result.exit_code != 0:
             detail = result.output[:1500] if result.output.strip() else "stdout и stderr пусты"
@@ -345,7 +345,7 @@ async def approve_step(
             if server is None or server.owner_id != e.owner_id:
                 raise ActionBlocked("Attack box не найден")
         from app.services.pentest_workers import remote_directory
-        runner, pin = _attack_box_runner(server, remote_directory(worker) if worker else None)
+        runner, pin = _attack_box_runner(server, remote_directory(worker) if worker else None, step.id)
         result = await venue_executor.execute(
             target=step.target or e.target,
             command=step.command,
@@ -366,7 +366,7 @@ async def approve_step(
         step.status = "blocked"
         step.output = f"Egress заблокирован: {exc}"
     except ssh_exec.SSHError as exc:
-        step.status = "failed"
+        step.status = "cancelled" if "остановлена оператором" in str(exc) else "failed"
         step.output = f"Attack box: {exc}"
     except venue_executor.NoExecutorConfigured as exc:
         step.status = "blocked"
@@ -391,8 +391,9 @@ async def stop_run(
     run = await session.scalar(select(AgentRun).where(AgentRun.id == rid).with_for_update())
     if run is None or run.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Run не найден")
-    if await session.scalar(select(AgentStep.id).where(AgentStep.run_id == rid, AgentStep.status == "running", AgentStep.kind != "tool")):
-        raise HTTPException(status_code=409, detail="Команда ещё выполняется на сервере. Остановка запуска сейчас недоступна.")
+    running = list(await session.scalars(select(AgentStep.id).where(
+        AgentStep.run_id == rid, AgentStep.status == "running", AgentStep.kind == "command")))
+    ssh_exec.interrupt(running)
     await session.execute(update(AgentStep).where(AgentStep.run_id == rid,
         AgentStep.status.in_(("awaiting_approval", "ready", "blocked", "failed"))).values(status="denied"))
     run.status = AgentRunStatus.completed
