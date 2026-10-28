@@ -165,10 +165,10 @@ export function WorkRail({
                       </form>
                     ) : (
                       <button onClick={() => onOpen(row.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={row.title}>
-                        <span className={`h-1.5 w-1.5 shrink-0 ${row.alert ? "bg-red-500" : row.working ? "animate-pulse bg-emerald-400" : "bg-neutral-600"}`} title={row.working ? "агент работает" : "простаивает"} />
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${row.alert ? "bg-[#FF453A]" : row.working ? "animate-pulse bg-[#30D158]" : active === row.id ? "bg-white" : "bg-neutral-400"}`} title={row.working ? "агент работает" : "простаивает"} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate">{row.title}</span>
-                          {meta && <span className="block truncate text-[10px] text-neutral-500">{meta}</span>}
+                          <span className="block truncate text-[13px] leading-5">{row.title}</span>
+                          {meta && <span className={`block truncate text-xs leading-4 ${active === row.id ? "text-white/90" : "text-neutral-300"}`}>{meta}</span>}
                         </span>
                       </button>
                     )}
