@@ -50,13 +50,13 @@ private val Ink = Color(0xFF0A0A0A)
 private val Card = Color(0xFF1C1C1E)
 private val Blue = Color(0xFF0A84FF)
 
-private sealed interface Route
-private data object Login : Route
-private data object Home : Route
-private data class Group(val id: String) : Route
-private data class Listing(val sectionId: String) : Route
-private data class Chat(val id: String, val title: String) : Route
-private data class Record(val kind: String, val id: String, val title: String) : Route
+internal sealed interface Route
+internal data object Login : Route
+internal data object Home : Route
+internal data class Group(val id: String) : Route
+internal data class Listing(val sectionId: String) : Route
+internal data class Chat(val id: String, val title: String) : Route
+internal data class Record(val kind: String, val id: String, val title: String) : Route
 
 @Composable
 fun LaylaApp(api: LaylaApi, store: Store) {
@@ -82,7 +82,7 @@ fun LaylaApp(api: LaylaApi, store: Store) {
                 is Group -> GroupScreen(route.id, ::back, ::go)
                 is Listing -> ListScreen(api, Catalog.section(route.sectionId), ::back, ::go)
                 is Chat -> ChatScreen(api, route.id, route.title, ::back)
-                is Record -> RecordScreen(api, route, ::back)
+                is Record -> WorkScreen(api, route, ::back)
             }
         }
     }
@@ -163,6 +163,7 @@ private fun ListScreen(api: LaylaApi, section: Section, back: () -> Unit, open: 
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(true) }
     var form by remember { mutableStateOf(false) }
+    var csv by remember(section.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     fun reload() {
         busy = true
@@ -183,17 +184,26 @@ private fun ListScreen(api: LaylaApi, section: Section, back: () -> Unit, open: 
         if (busy) CircularProgressIndicator()
         error?.let { Text(it, color = Color(0xFFFF8A80)) }
         rows.forEach { row ->
-            val id = row.optString("id")
+            val id = row.optString("id").ifBlank { row.optString("provider") }
             val kind = section.open
             val title = labelOf(row)
+            val singleton = kind in setOf("telegram", "agent-config", "sandbox", "meta", "health")
             Text(title, color = Color.White, modifier = Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).clickable {
                 when (kind) {
                     "chat" -> if (id.isNotBlank()) open(Chat(id, title))
-                    "trash-chat", "trash-project" -> if (id.isNotBlank()) open(Record(kind, id, title))
                     null -> Unit
-                    else -> if (id.isNotBlank()) open(Record(kind, id, title))
+                    else -> if (singleton || id.isNotBlank()) open(Record(kind, id, title))
                 }
             }.padding(14.dp))
+        }
+        if (section.id == "settings-security") {
+            Button(onClick = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { api.auditCsv() } }
+                    result.onSuccess { csv = it }.onFailure { error = it.message }
+                }
+            }) { Text("Экспорт CSV") }
+            csv?.let { Text(it, color = Color(0xFFD0D0D0)) }
         }
         if (!busy && rows.isEmpty() && error == null) Text("Пока пусто.", color = Color(0xFF9A9A9A))
     }
@@ -203,7 +213,7 @@ private fun ListScreen(api: LaylaApi, section: Section, back: () -> Unit, open: 
 private fun CreateForm(api: LaylaApi, section: Section, onDone: () -> Unit) {
     var a by remember { mutableStateOf("") }
     var b by remember { mutableStateOf("") }
-    var c by remember { mutableStateOf("root") }
+    var c by remember { mutableStateOf("") }
     var d by remember { mutableStateOf("password") }
     var e by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -213,10 +223,14 @@ private fun CreateForm(api: LaylaApi, section: Section, onDone: () -> Unit) {
             "chat" -> Field("Название", a) { a = it }
             "project" -> Field("Название проекта", a) { a = it }
             "engagement" -> Field("Цель", a) { a = it }
-            "case" -> Field("Субъект", a) { a = it }
+            "case" -> {
+                Field("Субъект", a) { a = it }
+                Field("domain, person или company", b) { b = it }
+            }
             "design" -> {
                 Field("Бренд", a) { a = it }
                 Field("Заметки", b) { b = it }
+                Field("Стек: html, react или vue", c) { c = it }
             }
             "user" -> {
                 Field("Почта", a) { a = it }
@@ -233,6 +247,29 @@ private fun CreateForm(api: LaylaApi, section: Section, onDone: () -> Unit) {
                 Field("Имя", a) { a = it }
                 Field("Команда или URL", b) { b = it }
             }
+            "import" -> {
+                Field("Git URL", a) { a = it }
+                Field("Название", b) { b = it }
+            }
+            "provider" -> {
+                Field("Название", a) { a = it }
+                Field("openai_compatible, anthropic или custom", b) { b = it }
+                Field("Base URL", c) { c = it }
+                Field("API-ключ", e, password = true) { e = it }
+            }
+            "persona" -> {
+                Field("Название", a) { a = it }
+                Field("Инструкции", b) { b = it }
+            }
+            "knowledge" -> {
+                Field("Название", a) { a = it }
+                Field("Текст", b) { b = it }
+                Field("Домен, если нужен", c) { c = it }
+            }
+            "combo" -> {
+                Field("Название", a) { a = it }
+                Field("Модели через запятую", b) { b = it }
+            }
         }
         error?.let { Text(it, color = Color(0xFFFF8A80)) }
         Button(onClick = {
@@ -243,11 +280,16 @@ private fun CreateForm(api: LaylaApi, section: Section, onDone: () -> Unit) {
                             "chat" -> api.createChat(section.group, a)
                             "project" -> api.createProject(a)
                             "engagement" -> api.createEngagement(a)
-                            "case" -> api.createCase(a, "domain")
-                            "design" -> api.createDesign(a, b)
+                            "case" -> api.createCase(a, b.ifBlank { "domain" })
+                            "design" -> api.createDesign(a, b, c.ifBlank { "html" })
                             "user" -> api.createUser(a, b, false)
                             "server" -> api.addServer(a, b.toIntOrNull() ?: 22, c, if (d == "key") "key" else "password", e)
                             "mcp" -> api.request("POST", "/api/mcp/servers", JSONObject().put("name", a).put("command", b).put("transport", "stdio")).obj()
+                            "import" -> api.importRepo(a, b)
+                            "provider" -> api.createProvider(a, b.ifBlank { "openai_compatible" }, c, e)
+                            "persona" -> api.createPersona(a, b)
+                            "knowledge" -> api.addKnowledge(a, b, c)
+                            "combo" -> api.createCombo(a, b.split(",").map { it.trim() }.filter { it.isNotEmpty() })
                             else -> JSONObject()
                         }
                     }
@@ -263,6 +305,8 @@ private fun ChatScreen(api: LaylaApi, id: String, title: String, back: () -> Uni
     var detail by remember { mutableStateOf<JSONObject?>(null) }
     var text by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("auto") }
+    var model by remember { mutableStateOf("") }
+    var rename by remember { mutableStateOf(title) }
     var error by remember { mutableStateOf<String?>(null) }
     var servers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var tick by remember { mutableStateOf(0) }
@@ -286,6 +330,30 @@ private fun ChatScreen(api: LaylaApi, id: String, title: String, back: () -> Uni
         TextButton(onClick = back) { Text("Назад") }
         Text(title, color = Color.White, style = MaterialTheme.typography.titleLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TextButton(onClick = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { api.renameChat(id, rename.ifBlank { title }) } }
+                    result.onFailure { error = it.message }
+                    tick++
+                }
+            }) { Text("Переименовать") }
+            TextButton(onClick = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { api.deleteChat(id) } }
+                    result.onSuccess { back() }.onFailure { error = it.message }
+                }
+            }) { Text("В корзину") }
+            TextButton(onClick = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { api.compactChat(id) } }
+                    result.onFailure { error = it.message }
+                    tick++
+                }
+            }) { Text("Сжать") }
+        }
+        Field("Название", rename) { rename = it }
+        Field("Модель, если не та, что у чата", model) { model = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("auto" to "Авто", "confirm" to "С подтверждением", "plan" to "План", "review" to "Ревью").forEach { (value, label) ->
                 FilterChip(selected = mode == value, onClick = { mode = value }, label = { Text(label) })
             }
@@ -295,10 +363,31 @@ private fun ChatScreen(api: LaylaApi, id: String, title: String, back: () -> Uni
                 for (index in 0 until messages.length()) {
                     val message = messages.getJSONObject(index)
                     Text("${message.optString("role")}: ${message.optString("content")}", color = Color.White, modifier = Modifier.padding(vertical = 6.dp))
+                    val messageId = message.optString("id")
+                    if (message.optString("role") == "assistant" && messageId.isNotBlank()) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) { runCatching { api.rollback(id, messageId) } }
+                                result.onFailure { error = it.message }
+                                tick++
+                            }
+                        }) { Text("Откатить к этому ответу") }
+                    }
                 }
             }
             error?.let { Text(it, color = Color(0xFFFF8A80)) }
-            val approval = detail?.optJSONObject("last_job")?.optJSONObject("result")?.optJSONObject("approval")
+            val job = detail?.optJSONObject("last_job")
+            val jobStatus = job?.optString("status")
+            val approval = job?.optJSONObject("result")?.optJSONObject("approval")
+            if (job != null && (jobStatus == "queued" || jobStatus == "running")) {
+                TextButton(onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { api.cancelJob(job.getString("id")) } }
+                        tick++
+                    }
+                }) { Text("Остановить задачу") }
+            }
+            if (detail?.optString("domain") == "code") CodeTools(api, id) { error = it; tick++ }
             val jobId = detail?.optJSONObject("last_job")?.optString("id").orEmpty()
             if (approval != null && jobId.isNotBlank()) {
                 Row {
@@ -327,7 +416,12 @@ private fun ChatScreen(api: LaylaApi, id: String, title: String, back: () -> Uni
                 if (content.isEmpty()) return@Button
                 text = ""
                 scope.launch {
-                    val result = withContext(Dispatchers.IO) { runCatching { api.send(id, content, mode, detail?.optString("model"), detail?.optString("provider_id")) } }
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val chosenModel = model.ifBlank { detail?.optString("model") }
+                            api.send(id, content, mode, chosenModel, detail?.optString("provider_id"))
+                        }
+                    }
                     result.onFailure { error = it.message }
                     tick++
                 }
@@ -337,60 +431,40 @@ private fun ChatScreen(api: LaylaApi, id: String, title: String, back: () -> Uni
 }
 
 @Composable
-private fun RecordScreen(api: LaylaApi, route: Record, back: () -> Unit) {
-    var body by remember { mutableStateOf("Загрузка…") }
-    var error by remember { mutableStateOf<String?>(null) }
+private fun CodeTools(api: LaylaApi, chatId: String, onError: (String?) -> Unit) {
+    var state by remember { mutableStateOf<JSONObject?>(null) }
+    var question by remember { mutableStateOf("") }
+    var answer by remember { mutableStateOf("") }
+    var worker by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(route.id) {
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                when (route.kind) {
-                    "project" -> api.projectFiles(route.id).joinToString("\n") { it.toString(2) } + "\n\n" + api.git(route.id).toString(2)
-                    "engagement" -> api.findings(route.id).joinToString("\n") { labelOf(it) }.ifBlank { "Находок нет." } +
-                        "\n\nОтчёты\n" + api.reports(route.id).joinToString("\n") { labelOf(it) } +
-                        "\n\nЗапуски\n" + api.agentRuns(route.id).joinToString("\n") { it.optString("status") + " " + it.optString("id") }
-                    "case" -> api.artifacts(route.id).joinToString("\n") { labelOf(it) } + "\n\n" + api.lookups(route.id).joinToString("\n") { labelOf(it) }
-                    "design" -> api.design(route.id).toString(2)
-                    "server" -> api.testConnection(route.id).toString(2)
-                    "provider" -> api.request("GET", "/api/providers/${route.id}/keys").text
-                    "account" -> api.me().toString(2)
-                    "job" -> api.request("GET", "/api/jobs/${route.id}").text
-                    "trash-chat", "trash-project" -> route.title
-                    else -> api.request("GET", "/api/auth/me").text
-                }
-            }
-        }
-        result.onSuccess { body = it }.onFailure { error = it.message; body = "" }
+    LaunchedEffect(chatId) {
+        state = withContext(Dispatchers.IO) { runCatching { api.codeState(chatId) }.getOrNull() }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = back) { Text("Назад") }
-        Text(route.title, color = Color.White, style = MaterialTheme.typography.titleLarge)
-        if (route.kind == "trash-chat" || route.kind == "trash-project") {
-            Button(onClick = {
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching { if (route.kind == "trash-chat") api.restoreChat(route.id) else api.restoreProject(route.id) }
-                    }
-                    result.onSuccess { body = "Восстановлено" }.onFailure { error = it.message }
-                }
-            }) { Text("Восстановить") }
+    Text("Код: состояние, вопрос агенту, воркер", color = Color(0xFFB5B5B5))
+    state?.let { Text(it.toString(2).take(2000), color = Color(0xFFD0D0D0)) }
+    Field("ID вопроса", question) { question = it }
+    Field("Ответ", answer) { answer = it }
+    TextButton(onClick = {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { api.answerCode(chatId, question, answer) } }
+            result.onSuccess { state = it; onError(null) }.onFailure { onError(it.message) }
         }
-        if (route.kind == "job") {
-            Button(onClick = {
+    }) { Text("Ответить") }
+    Field("ID воркера", worker) { worker = it }
+    Row {
+        listOf("stop", "resume", "discard").forEach { action ->
+            TextButton(onClick = {
                 scope.launch {
-                    val result = withContext(Dispatchers.IO) { runCatching { api.cancelJob(route.id).toString(2) } }
-                    result.onSuccess { body = it }.onFailure { error = it.message }
+                    val result = withContext(Dispatchers.IO) { runCatching { api.workerAction(chatId, worker, action) } }
+                    result.onFailure { onError(it.message) }
                 }
-            }) { Text("Остановить") }
+            }) { Text(action) }
         }
-        if (route.kind == "account") PasswordChange(api)
-        error?.let { Text(it, color = Color(0xFFFF8A80)) }
-        Text(body, color = Color(0xFFD0D0D0))
     }
 }
 
 @Composable
-private fun PasswordChange(api: LaylaApi) {
+internal fun PasswordChange(api: LaylaApi) {
     var current by remember { mutableStateOf("") }
     var next by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
@@ -409,7 +483,7 @@ private fun PasswordChange(api: LaylaApi) {
 }
 
 @Composable
-private fun Field(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
+internal fun Field(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,

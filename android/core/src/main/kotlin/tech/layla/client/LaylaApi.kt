@@ -67,10 +67,13 @@ class LaylaApi(
 
     fun chats(domain: String) = request("GET", "/api/chats?domain=$domain").items()
 
-    fun createChat(domain: String, title: String) = request(
+    fun createChat(domain: String, title: String, projectId: String? = null, personaId: String? = null) = request(
         "POST",
         "/api/chats",
-        JSONObject().put("domain", domain).put("title", title.ifBlank { "Новая задача" }),
+        JSONObject().put("domain", domain).put("title", title.ifBlank { "Новая задача" }).apply {
+            if (!projectId.isNullOrBlank()) put("project_id", projectId)
+            if (!personaId.isNullOrBlank()) put("persona_id", personaId)
+        },
     ).obj()
 
     fun chat(id: String) = request("GET", "/api/chats/$id").obj()
@@ -129,11 +132,11 @@ class LaylaApi(
 
     fun lookups(id: String) = request("GET", "/api/osint/cases/$id/lookups").items()
 
-    fun createDesign(brand: String, notes: String) = request(
+    fun createDesign(brand: String, notes: String, stack: String = "html") = request(
         "POST",
         "/api/designs/generate",
         JSONObject()
-            .put("stack", "html")
+            .put("stack", stack.ifBlank { "html" })
             .put("brief", JSONObject().put("brand", brand).put("notes", notes).put("artifact_type", "Landing")),
     ).obj()
 
@@ -157,7 +160,289 @@ class LaylaApi(
 
     fun restoreProject(id: String) = request("POST", "/api/trash/projects/$id/restore")
 
+    fun purgeChat(id: String) = request("DELETE", "/api/trash/chats/$id")
+
+    fun purgeProject(id: String) = request("DELETE", "/api/trash/projects/$id")
+
+    fun emptyTrash() = request("DELETE", "/api/trash")
+
     fun bootstrap() = request("GET", "/api/auth/bootstrap").obj()
+
+    fun models() = request("GET", "/api/models").items()
+
+    fun personas() = request("GET", "/api/personas").items()
+
+    fun renameChat(id: String, title: String) = request(
+        "PATCH",
+        "/api/chats/$id",
+        JSONObject().put("title", title),
+    ).obj()
+
+    fun deleteChat(id: String) = request("DELETE", "/api/chats/$id")
+
+    fun compactChat(id: String) = request("POST", "/api/chats/$id/compact").obj()
+
+    fun rollback(chatId: String, messageId: String) = request(
+        "POST",
+        "/api/chats/$chatId/messages/$messageId/rollback",
+    ).obj()
+
+    fun codeState(chatId: String) = request("GET", "/api/chats/$chatId/code-state").obj()
+
+    fun answerCode(chatId: String, questionId: String, answer: String) = request(
+        "POST",
+        "/api/chats/$chatId/code-state/answer",
+        JSONObject().put("question_id", questionId).put("answers", JSONObject().put("choice", JSONArray().put(answer))),
+    ).obj()
+
+    fun workerAction(chatId: String, workerId: String, action: String) = request(
+        "POST",
+        "/api/chats/$chatId/workers/$workerId/$action" + if (action == "discard") "?discard_changes=true" else "",
+        JSONObject(),
+    ).obj()
+
+    fun readFile(projectId: String, path: String) = request(
+        "GET",
+        "/api/projects/$projectId/file?path=${encode(path)}",
+    ).obj()
+
+    fun writeFile(projectId: String, path: String, content: String, sha: String?) = request(
+        "PUT",
+        "/api/projects/$projectId/file",
+        JSONObject().put("path", path).put("content", content).put("expected_sha256", sha ?: JSONObject.NULL),
+    ).obj()
+
+    fun deleteFile(projectId: String, path: String) = request(
+        "DELETE",
+        "/api/projects/$projectId/file?path=${encode(path)}",
+    ).obj()
+
+    fun deleteProject(id: String) = request("DELETE", "/api/projects/$id")
+
+    fun importRepo(url: String, name: String) = request(
+        "POST",
+        "/api/projects/import",
+        JSONObject().put("repo_url", url).put("name", name.ifBlank { JSONObject.NULL }),
+    ).obj()
+
+    fun gitInit(id: String) = request("POST", "/api/projects/$id/git/init").obj()
+
+    fun gitCommit(id: String, message: String) = request(
+        "POST",
+        "/api/projects/$id/git/commit",
+        JSONObject().put("message", message),
+    ).obj()
+
+    fun gitPush(id: String) = request("POST", "/api/projects/$id/git/push", JSONObject()).obj()
+
+    fun gitPull(id: String) = request("POST", "/api/projects/$id/git/pull").obj()
+
+    fun gitRemote(id: String, url: String) = request(
+        "PUT",
+        "/api/projects/$id/git/remote",
+        JSONObject().put("url", url),
+    ).obj()
+
+    fun gitCredentials(host: String, token: String) = request(
+        "PUT",
+        "/api/git/credentials",
+        JSONObject().put("host", host).put("token", token),
+    ).obj()
+
+    fun engagement(id: String) = request("GET", "/api/engagements/$id").obj()
+
+    fun setScope(id: String, allow: List<String>, deny: List<String>) = request(
+        "PUT",
+        "/api/engagements/$id/scope",
+        JSONObject().put("allow", JSONArray(allow)).put("deny", JSONArray(deny)),
+    ).obj()
+
+    fun confirmScope(id: String) = request("POST", "/api/engagements/$id/scope/confirm").obj()
+
+    fun acceptAuthorization(id: String, sha: String) = request(
+        "POST",
+        "/api/engagements/$id/confirm",
+        JSONObject().put("content_sha256", sha),
+    ).obj()
+
+    fun authorization(id: String) = request("GET", "/api/engagements/$id/authorization").obj()
+
+    fun setOffensive(id: String, enabled: Boolean) = request(
+        "PUT",
+        "/api/engagements/$id/offensive",
+        JSONObject().put("enabled", enabled),
+    ).obj()
+
+    fun setVenue(id: String, mode: String, egress: String) = request(
+        "PUT",
+        "/api/engagements/$id/venue",
+        JSONObject().put("mode", mode).put("egress_route", egress),
+    ).obj()
+
+    fun addFinding(id: String, title: String, severity: String, description: String) = request(
+        "POST",
+        "/api/engagements/$id/findings",
+        JSONObject().put("title", title).put("severity", severity).put("description", description).put("source", "manual"),
+    ).obj()
+
+    fun patchFinding(engagementId: String, findingId: String, status: String) = request(
+        "PATCH",
+        "/api/engagements/$engagementId/findings/$findingId",
+        JSONObject().put("status", status),
+    ).obj()
+
+    fun generateReport(id: String) = request("POST", "/api/engagements/$id/reports/generate").obj()
+
+    fun startAgent(id: String, task: String, mode: String) = request(
+        "POST",
+        "/api/engagements/$id/agent/runs",
+        JSONObject().put("task", task).put("mode", mode),
+    ).obj()
+
+    fun stopAgent(runId: String) = request("POST", "/api/agent/runs/$runId/stop").obj()
+
+    fun approveStep(stepId: String) = request("POST", "/api/agent/steps/$stepId/approve").obj()
+
+    fun denyStep(stepId: String) = request("POST", "/api/agent/steps/$stepId/deny").obj()
+
+    fun deleteEngagement(id: String) = request("DELETE", "/api/engagements/$id")
+
+    fun addArtifact(caseId: String, title: String, summary: String, sourceUrl: String) = request(
+        "POST",
+        "/api/osint/cases/$caseId/artifacts",
+        JSONObject().put("title", title).put("summary", summary).put("source_url", sourceUrl),
+    ).obj()
+
+    fun runLookup(caseId: String, provider: String, target: String) = request(
+        "POST",
+        "/api/osint/cases/$caseId/lookups",
+        JSONObject().put("provider", provider).put("target", target),
+    ).obj()
+
+    fun deleteCase(id: String) = request("DELETE", "/api/osint/cases/$id")
+
+    fun renameDesign(id: String, title: String) = request(
+        "PATCH",
+        "/api/designs/$id",
+        JSONObject().put("title", title),
+    ).obj()
+
+    fun deleteDesign(id: String) = request("DELETE", "/api/designs/$id")
+
+    fun deleteServer(id: String) = request("DELETE", "/api/servers/$id")
+
+    fun createProvider(name: String, kind: String, baseUrl: String, apiKey: String) = request(
+        "POST",
+        "/api/providers",
+        JSONObject().put("name", name).put("kind", kind).put("base_url", baseUrl.ifBlank { JSONObject.NULL }).put("api_key", apiKey.ifBlank { JSONObject.NULL }).put("enabled", true),
+    ).obj()
+
+    fun addKey(providerId: String, apiKey: String, label: String) = request(
+        "POST",
+        "/api/providers/$providerId/keys",
+        JSONObject().put("api_key", apiKey).put("label", label.ifBlank { JSONObject.NULL }),
+    ).obj()
+
+    fun deleteKey(id: String) = request("DELETE", "/api/providers/keys/$id")
+
+    fun deleteProvider(id: String) = request("DELETE", "/api/providers/$id")
+
+    fun createPersona(name: String, instructions: String) = request(
+        "POST",
+        "/api/personas",
+        JSONObject().put("name", name).put("instructions", instructions),
+    ).obj()
+
+    fun deletePersona(id: String) = request("DELETE", "/api/personas/$id")
+
+    fun addKnowledge(title: String, content: String, domain: String) = request(
+        "POST",
+        "/api/knowledge",
+        JSONObject().put("title", title).put("content", content).put("domain", domain.ifBlank { JSONObject.NULL }),
+    ).obj()
+
+    fun searchKnowledge(query: String) = request(
+        "POST",
+        "/api/knowledge/search",
+        JSONObject().put("query", query).put("top_k", 8),
+    ).items()
+
+    fun deleteKnowledge(id: String) = request("DELETE", "/api/knowledge/$id")
+
+    fun createCombo(name: String, models: List<String>) = request(
+        "POST",
+        "/api/combos",
+        JSONObject().put("name", name).put("models", JSONArray(models)).put("enabled", true),
+    ).obj()
+
+    fun deleteCombo(id: String) = request("DELETE", "/api/combos/$id")
+
+    fun saveTelegram(token: String, chatId: String, publicUrl: String): JSONObject {
+        val body = JSONObject().put("enabled", true).put("control_enabled", true)
+        if (token.isNotBlank()) body.put("bot_token", token)
+        if (chatId.isNotBlank()) body.put("default_chat_id", chatId)
+        if (publicUrl.isNotBlank()) body.put("public_url", publicUrl)
+        return request("PUT", "/api/integrations/telegram", body).obj()
+    }
+
+    fun testTelegram() = request("POST", "/api/integrations/telegram/test", JSONObject()).obj()
+
+    fun deleteTelegram() = request("DELETE", "/api/integrations/telegram")
+
+    fun agentConfig() = request("GET", "/api/agent/config").obj()
+
+    fun saveAgentConfig(current: JSONObject, preset: String) = request(
+        "PUT",
+        "/api/agent/config",
+        JSONObject()
+            .put("preset", preset.ifBlank { current.optString("preset").ifBlank { "minimal" } })
+            .put("role_models", current.optJSONObject("role_models") ?: JSONObject())
+            .put("budgets", current.optJSONObject("budgets") ?: JSONObject())
+            .put("diagnostics", current.optJSONObject("diagnostics") ?: JSONObject())
+            .put("context", current.optJSONObject("context") ?: JSONObject()),
+    ).obj()
+
+    fun updateUser(id: String, admin: Boolean?, active: Boolean?, reset: Boolean) = request(
+        "PATCH",
+        "/api/admin/users/$id",
+        JSONObject().apply {
+            if (admin != null) put("is_admin", admin)
+            if (active != null) put("is_active", active)
+            if (reset) put("reset_password", true)
+        },
+    ).obj()
+
+    fun deleteUser(id: String) = request("DELETE", "/api/admin/users/$id")
+
+    fun testMcp(id: String) = request("POST", "/api/mcp/servers/$id/test").obj()
+
+    fun setMcpEnabled(id: String, enabled: Boolean) = request(
+        "PATCH",
+        "/api/mcp/servers/$id",
+        JSONObject().put("enabled", enabled),
+    ).obj()
+
+    fun deleteMcp(id: String) = request("DELETE", "/api/mcp/servers/$id")
+
+    fun saveIntelKey(provider: String, apiKey: String) = request(
+        "PUT",
+        "/api/integrations/intelligence/$provider",
+        JSONObject().put("api_key", apiKey),
+    ).obj()
+
+    fun installLanguage(language: String, version: String) = request(
+        "POST",
+        "/api/sandbox/languages",
+        JSONObject().put("language", language).put("version", version),
+    ).obj()
+
+    fun removeLanguage(language: String, version: String) = request(
+        "DELETE",
+        "/api/sandbox/languages",
+        JSONObject().put("language", language).put("version", version),
+    ).obj()
+
+    fun auditCsv() = request("GET", "/api/audit/export.csv").text
 
     fun request(method: String, path: String, json: JSONObject? = null): ApiBody {
         val builder = Request.Builder().url(base + path).header("Accept", "application/json")
@@ -183,6 +468,8 @@ class LaylaApi(
     companion object {
         private val JSON = "application/json; charset=utf-8".toMediaType()
         private val EMPTY = ByteArray(0).toRequestBody(null)
+
+        fun encode(value: String) = java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
     }
 }
 

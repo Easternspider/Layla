@@ -20,6 +20,8 @@ class CatalogTest {
         assertTrue("code-chat" in ids && "agent-servers" in ids && "settings-trash" in ids)
         assertEquals("/api/chats?domain=agent", Catalog.section("agent-tasks").path)
         assertEquals("server", Catalog.section("agent-servers").form)
+        assertEquals("intel", Catalog.section("osint-sources").open)
+        assertEquals("provider", Catalog.section("settings-providers").form)
         assertTrue(Catalog.sectionsOf("pentest").size == 6)
     }
 }
@@ -102,5 +104,91 @@ class ApiTest {
         val row = JSONObject().put("user", "root").put("host", "latvia.example").put("id", "1")
         assertEquals("root@latvia.example", labelOf(row))
         assertFalse(labelOf(JSONObject().put("title", "Задача")).isBlank())
+    }
+
+    @Test fun sameRoutesAsTheWebClient() {
+        val hits = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                hits.add("${request.method} ${request.path}")
+                bodies.add(request.body.readUtf8())
+                return MockResponse().setBody("""{"id":"1","content_sha256":"abc","files":[],"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}""")
+            }
+        }
+        server.start()
+        try {
+            val api = LaylaApi(SessionJar(), server.url("/").toString().trimEnd('/'))
+            api.setScope("e1", listOf("10.0.0.5"), emptyList())
+            api.confirmScope("e1")
+            api.setVenue("e1", "attack_box", "direct")
+            api.setOffensive("e1", true)
+            api.addFinding("e1", "xss", "high", "reflected")
+            api.generateReport("e1")
+            api.startAgent("e1", "проверь scope", "interactive")
+            api.stopAgent("r1")
+            api.approveStep("s1")
+            api.writeFile("p1", "src/App.kt", "fun main(){}", null)
+            api.readFile("p1", "src/App.kt")
+            api.gitCommit("p1", "save")
+            api.gitPush("p1")
+            api.importRepo("https://example.com/repo.git", "repo")
+            api.createChat("code", "задача", "p1", null)
+            api.renameChat("c1", "новое")
+            api.deleteChat("c1")
+            api.compactChat("c1")
+            api.rollback("c1", "m1")
+            api.workerAction("c1", "w1", "discard")
+            api.answerCode("c1", "q1", "да")
+            api.runLookup("case", "shodan", "example.com")
+            api.addArtifact("case", "заметка", "текст", "https://example.com/src")
+            api.createDesign("Layla", "тёмная", "react")
+            api.createProvider("OpenAI", "openai_compatible", "https://api.openai.com/v1", "sk-test")
+            api.addKey("pr1", "sk-test", "основной")
+            api.createPersona("Ревьюер", "смотри diff")
+            api.addKnowledge("заметка", "текст", "code")
+            api.searchKnowledge("текст")
+            api.createCombo("ночная", listOf("gpt"))
+            api.saveTelegram("123:abc", "1", "https://layla.example")
+            api.saveIntelKey("shodan", "key")
+            api.installLanguage("python", "3.12")
+            api.removeLanguage("python", "3.12")
+            api.saveAgentConfig(
+                JSONObject().put("preset", "pulse").put("role_models", JSONObject().put("explorer", "gpt")),
+                "constellation",
+            )
+            api.updateUser("u2", admin = false, active = true, reset = true)
+            api.restoreChat("c9")
+            api.purgeChat("c9")
+            api.emptyTrash()
+        } finally {
+            server.shutdown()
+        }
+        assertTrue(hits.contains("PUT /api/engagements/e1/scope"))
+        assertTrue(hits.contains("POST /api/engagements/e1/scope/confirm"))
+        assertTrue(hits.contains("PUT /api/engagements/e1/venue"))
+        assertTrue(hits.contains("POST /api/engagements/e1/agent/runs"))
+        assertTrue(hits.contains("POST /api/agent/runs/r1/stop"))
+        assertTrue(hits.contains("POST /api/agent/steps/s1/approve"))
+        assertTrue(hits.contains("GET /api/projects/p1/file?path=src%2FApp.kt"))
+        assertTrue(hits.contains("POST /api/projects/p1/git/commit"))
+        assertTrue(hits.contains("POST /api/projects/import"))
+        assertTrue(hits.contains("POST /api/chats/c1/workers/w1/discard?discard_changes=true"))
+        assertTrue(hits.contains("POST /api/osint/cases/case/lookups"))
+        assertTrue(hits.contains("POST /api/designs/generate"))
+        assertTrue(hits.contains("PUT /api/integrations/intelligence/shodan"))
+        assertTrue(hits.contains("DELETE /api/sandbox/languages"))
+        assertTrue(hits.contains("DELETE /api/trash"))
+        val scope = bodies.first { it.contains("10.0.0.5") }
+        assertTrue(scope.contains("\"allow\""))
+        val file = bodies.first { it.contains("src/App.kt") }
+        assertTrue(file.contains("\"expected_sha256\":null"))
+        val config = bodies.first { it.contains("constellation") }
+        assertTrue(config.contains("\"explorer\":\"gpt\""))
+        val design = bodies.first { it.contains("\"stack\":\"react\"") }
+        assertTrue(design.contains("тёмная"))
+        val user = bodies.first { it.contains("reset_password") }
+        assertTrue(user.contains("\"is_admin\":false"))
     }
 }
