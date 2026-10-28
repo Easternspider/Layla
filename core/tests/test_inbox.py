@@ -37,6 +37,26 @@ async def test_create_and_read_mailbox(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_create_inbox_skips_a_rejected_domain(monkeypatch):
+    def serve(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/domains":
+            return httpx.Response(200, json={"hydra:member": [
+                {"domain": "blocked.test", "isActive": True},
+                {"domain": "fresh.test", "isActive": True},
+            ]})
+        if request.url.path == "/accounts":
+            return httpx.Response(201, json={})
+        if request.url.path == "/token":
+            return httpx.Response(200, json={"token": "fixture-token"})
+        return httpx.Response(404)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    created = await inbox.create_inbox("blocked.test")
+    assert created["address"].endswith("@fresh.test")
+
+
+@pytest.mark.asyncio
 async def test_read_requires_the_created_password():
     with pytest.raises(ValueError):
         await inbox.read_inbox("person@example.test", "")
