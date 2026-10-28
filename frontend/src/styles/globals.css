@@ -5,7 +5,7 @@
 @layer base {
   :root { color-scheme: dark; --motion-duration: 260ms; --ease-surface: cubic-bezier(.22, 1, .36, 1); }
   html, body { height: 100%; }
-  body { @apply bg-ink-950 font-sans text-neutral-200 antialiased; font-feature-settings: "ss01", "cv11"; font-kerning: normal; line-height: 1.65; }
+  body { @apply bg-ink-950 font-sans text-neutral-200 antialiased; font-feature-settings: "ss01"; font-kerning: normal; letter-spacing: -0.011em; line-height: 1.6; }
   h1, h2, h3 { @apply tracking-tight; text-wrap: balance; font-weight: 650; }
   button, input, textarea, select, a, summary {
     -webkit-tap-highlight-color: transparent;
@@ -151,12 +151,22 @@
 .engagement-beacon[data-active="true"] .engagement-beacon-orbit { border-color: #7cdbc6 transparent #a98cf5 transparent; opacity: 1; box-shadow: 0 0 10px rgb(124 219 198 / .16); animation: engagement-orbit 1.8s linear infinite; }
 .engagement-beacon[data-active="true"] .engagement-beacon-core { box-shadow: 0 0 8px rgb(124 219 198 / .5); }
 @keyframes engagement-orbit { to { transform: rotate(360deg); } }
-/* Ambient light stays behind opaque content; only transforms animate. */
-.aurora-backdrop { display: none; }
-.aurora-light { position: absolute; width: min(1100px, 100vw); height: min(820px, 100vh); opacity: .75; animation: aurora-drift 28s ease-in-out infinite alternate; }
-.aurora-violet { top: -36%; left: -12%; background: radial-gradient(ellipse, rgb(145 117 237 / .3), rgb(145 117 237 / .08) 40%, transparent 70%); }
-.aurora-mint { right: -28%; bottom: -45%; background: radial-gradient(ellipse, rgb(92 189 172 / .19), transparent 68%); animation-delay: -14s; animation-duration: 34s; }
-.aurora-grain { position: absolute; inset: 0; opacity: .12; background-image: radial-gradient(rgb(255 255 255 / .2) .5px, transparent .5px); background-size: 5px 5px; mask-image: linear-gradient(black, transparent 80%); }
+/* Ambient light sits behind translucent panels. */
+.aurora-backdrop { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; background: #090b10; }
+.aurora-wash { position: absolute; inset: -20%; background: conic-gradient(from 80deg, rgb(var(--glow-a) / .18), rgb(var(--glow-b) / .08), rgb(var(--glow-c) / .16), rgb(var(--glow-a) / .18)); filter: blur(40px); animation: aurora-spin 48s linear infinite; }
+.aurora-light { position: absolute; width: min(920px, 90vw); height: min(720px, 80vh); border-radius: 50%; filter: blur(8px); opacity: .9; animation: aurora-drift 22s ease-in-out infinite alternate; }
+.aurora-violet { top: -28%; left: -14%; background: radial-gradient(ellipse, rgb(var(--glow-a) / .55), transparent 68%); }
+.aurora-mint { right: -22%; bottom: -36%; background: radial-gradient(ellipse, rgb(var(--glow-b) / .42), transparent 70%); animation-delay: -11s; animation-duration: 28s; }
+.aurora-rose { top: 20%; left: 34%; width: min(640px, 70vw); height: min(520px, 60vh); background: radial-gradient(ellipse, rgb(var(--glow-c) / .28), transparent 70%); animation-delay: -6s; animation-duration: 32s; }
+.aurora-grain { position: absolute; inset: 0; opacity: .18; background-image: radial-gradient(rgb(255 255 255 / .18) .6px, transparent .6px); background-size: 4px 4px; mask-image: linear-gradient(black, transparent 85%); animation: aurora-grain 16s linear infinite; }
+.app-shell { --glow-a: 130 160 255; --glow-b: 80 200 190; --glow-c: 255 150 120; background: transparent; }
+.app-shell[data-domain="osint"] { --glow-a: 70 200 175; --glow-b: 110 160 255; --glow-c: 170 220 150; }
+.app-shell[data-domain="pentest"] { --glow-a: 255 110 145; --glow-b: 255 176 90; --glow-c: 150 130 255; }
+.app-shell[data-domain="code"] { --glow-a: 120 150 255; --glow-b: 70 200 190; --glow-c: 170 130 255; }
+.app-shell[data-domain="design"] { --glow-a: 190 130 255; --glow-b: 255 130 175; --glow-c: 130 170 255; }
+.app-topbar, .app-main { position: relative; z-index: 1; }
+@keyframes aurora-spin { to { transform: rotate(1turn); } }
+@keyframes aurora-grain { to { background-position: 80px 40px; } }
 .settings-sidebar { border: 1px solid rgb(132 146 174 / .12); box-shadow: inset 0 1px 0 rgb(255 255 255 / .04); }
 .settings-sidebar a[aria-current="page"] { background-image: linear-gradient(100deg, rgb(169 140 245 / .08), transparent); box-shadow: inset 2px 0 0 #a98cf5; }
 .settings-content section { background-image: linear-gradient(135deg, rgb(255 255 255 / .025), transparent 65%); }
@@ -241,14 +251,14 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 .app-shell .rounded-3xl,
 .app-shell .rounded-lg,
 .app-shell .rounded-md,
-.app-shell .rounded { border-radius: 0 !important; }
+.app-shell .rounded { border-radius: 8px !important; }
 .app-shell .primary-button,
 .app-shell .secondary-button,
 .app-shell .send-button,
 .app-shell .suggestion-chip,
 .app-shell .chat-composer,
 .app-shell .chat-bubble,
-.app-shell .field-input { border-radius: 0 !important; box-shadow: none !important; }
+.app-shell .field-input { border-radius: 8px !important; box-shadow: none !important; }
 .app-shell .primary-button { background: #f2f2f2; color: #111; }
 .app-shell .send-button { background: #f2f2f2; color: #111; }
 
@@ -282,11 +292,11 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 .segmented-control {
   border: 1px solid rgb(255 255 255 / .1);
   background: transparent;
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   padding: 0;
 }
 .segmented-control .segment {
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   transition: background-color 140ms ease, color 140ms ease;
 }
 .segmented-control .segment[aria-pressed="true"] {
@@ -313,7 +323,7 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 .code-terminal,
 .code-preview,
 .code-chat {
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   border-color: rgb(255 255 255 / .08);
 }
 
@@ -338,13 +348,13 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 /* Settings sidebar matches domain lists. */
 .settings-sidebar {
   margin: 0 !important;
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   border-right: 1px solid var(--line);
   background: var(--surface);
   width: 240px;
   padding: 8px 0 !important;
 }
-.settings-sidebar a { border-radius: 0 !important; }
+.settings-sidebar a { border-radius: 8px !important; }
 .settings-sidebar a[aria-current="page"] {
   background: var(--hover);
   color: var(--text);
@@ -359,7 +369,7 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
 .chat-composer,
 .chat-bubble,
 .chat-message {
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   box-shadow: none !important;
   background: var(--surface);
   border-color: var(--line);
@@ -381,7 +391,7 @@ textarea,
 .segment,
 .nav-pill,
 .icon-button {
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 .primary-button,
@@ -435,7 +445,7 @@ details,
 [role="dialog"] > div,
 dialog {
   border: 1px solid var(--line) !important;
-  border-radius: 0 !important;
+  border-radius: 8px !important;
 }
 details { background: var(--surface); padding: 12px; margin-bottom: 8px; }
 details summary { cursor: pointer; }
@@ -443,3 +453,26 @@ details summary { cursor: pointer; }
 .text-accent-200, .text-accent-300, .text-accent-400 { color: var(--text) !important; }
 .bg-accent-500\/15, .bg-accent-500\/10, .bg-accent-600 { background: var(--hover) !important; }
 .settings-sidebar a[aria-current="page"] { color: var(--text) !important; background: var(--hover) !important; }
+
+/* Let the animated wash show through panels. */
+.app-shell,
+.login-shell { background: transparent !important; }
+.app-main,
+.domain-detail,
+.code-workspace,
+.settings-content { background: transparent !important; }
+.domain-list,
+.settings-sidebar,
+.workspace-toolbar,
+.chat-composer,
+.login-form,
+.login-card,
+details,
+.settings-content > div > section,
+.settings-content section,
+.surface-card,
+[role="dialog"] > div {
+  background: rgb(14 16 22 / .72) !important;
+  backdrop-filter: blur(18px);
+}
+.login-layout, .login-card, .login-intro { position: relative; z-index: 1; }

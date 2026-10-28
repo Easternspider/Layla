@@ -5,7 +5,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Manrope Variable"', '"Manrope"', "system-ui", "sans-serif"],
+        sans: ["var(--font-onest)", "Onest", "system-ui", "sans-serif"],
         mono: ['"SFMono-Regular"', "Consolas", '"Liberation Mono"', "monospace"],
       },
       colors: {
@@ -29,8 +29,8 @@ const config: Config = {
         domain: { code: "#c8ccd2", pentest: "#d4d7dc", osint: "#b8bcc4", design: "#c8ccd2" },
       },
       borderRadius: {
-        DEFAULT: "0", sm: "0", md: "0", lg: "0",
-        xl: "0", "2xl": "0", "3xl": "0",
+        DEFAULT: "8px", sm: "6px", md: "8px", lg: "10px",
+        xl: "12px", "2xl": "14px", "3xl": "16px",
       },
       boxShadow: {
         panel: "0 24px 80px -28px rgb(0 0 0 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.04)",
