@@ -13,6 +13,7 @@ import { CodeWorkerPanel, type CodeWorker } from "@/components/CodeWorkerPanel";
 import { CodeTeamPanel } from "@/components/CodeTeamPanel";
 import { CodeLeadPanel } from "@/components/CodeLeadPanel";
 import { CodeSkillPicker } from "@/components/CodeSkillPicker";
+import { CaptchaGate } from "@/components/CaptchaGate";
 import { confirmAction } from "@/components/ConfirmDialog";
 
 const active = (job?: Job | null) => !!job && ["queued", "running"].includes(job.status);
@@ -432,6 +433,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       <button className="primary-button !px-3 !py-1.5 text-xs" onClick={() => { pickMode("auto"); send({ text: "Выполни этот план.", mode: "auto" }); }}>Выполнить</button>
       <button className="secondary-button !px-3 !py-1.5 text-xs" onClick={() => { pickMode("confirm"); send({ text: "Выполни этот план.", mode: "confirm" }); }}>С подтверждением</button>
     </div>}
+    <CaptchaGate />
     <div className="chat-composer mx-4 mb-4">
       <div role="radiogroup" aria-label="Режим агента" className="mb-2 flex flex-wrap gap-1 text-xs">
         {MODES.map(({ id, label, hint, icon: Icon }) => <button key={id} role="radio" aria-checked={mode === id} title={hint} onClick={() => pickMode(id)} className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ${mode === id ? "bg-accent-500/20 text-accent-100" : "text-neutral-400 hover:bg-ink-900"}`}><Icon className="h-3.5 w-3.5" />{label}</button>)}

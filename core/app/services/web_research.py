@@ -343,7 +343,10 @@ class PageText(HTMLParser):
 async def read_web_page(url: str, blocked: list[str] = ()) -> dict:
     response = await source(url, blocked)
     if response.get('note') and _interstitial(response.get('text', '')):
-        return {k: v for k, v in response.items() if k != 'text'}
+        solved = await present_challenge(response['url'], blocked)
+        if not (solved and solved.get('http_status') == 200 and not _interstitial(solved.get('text', ''))):
+            return {k: v for k, v in response.items() if k != 'text'}
+        response = solved
     if response.get('http_status') != 200:
         return {k: v for k, v in response.items() if k != 'text'}
     content_type = response['content_type'].lower()
@@ -378,3 +381,131 @@ async def search_github(query: str, blocked: list[str] = ()) -> dict:
                 'default_branch': row.get('default_branch'), 'archived': row.get('archived'),
                 'license': (row.get('license') or {}).get('spdx_id'),
             } for row in data['items'][:10] if isinstance(row, dict)]}
+
+
+_challenges: dict[str, "Challenge"] = {}
+_VIEWPORT = (1100, 780)
+
+
+class Challenge:
+    def __init__(self, url: str, blocked: list[str]):
+        import secrets
+        self.id = secrets.token_hex(6)
+        self.url = url
+        self.host = urlsplit(url).hostname or url
+        self.blocked = blocked
+        self.mode = "external"
+        self.png: bytes | None = None
+        self.page = None
+        self.lock = asyncio.Lock()
+        self.future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.task: asyncio.Task | None = None
+
+
+def challenges() -> list[dict]:
+    return [{"id": item.id, "url": item.url, "host": item.host, "mode": item.mode} for item in _challenges.values()]
+
+
+def challenge_shot(challenge_id: str) -> bytes | None:
+    item = _challenges.get(challenge_id)
+    return item.png if item else None
+
+
+async def challenge_click(challenge_id: str, x: float, y: float) -> bool:
+    item = _challenges.get(challenge_id)
+    if item is None or item.page is None:
+        return False
+    async with item.lock:
+        await item.page.mouse.click(max(0, x), max(0, y))
+        item.png = await item.page.screenshot(type="jpeg", quality=55)
+    return True
+
+
+async def challenge_type(challenge_id: str, text: str) -> bool:
+    item = _challenges.get(challenge_id)
+    if item is None or item.page is None or not text:
+        return False
+    async with item.lock:
+        await item.page.keyboard.type(text[:200])
+        item.png = await item.page.screenshot(type="jpeg", quality=55)
+    return True
+
+
+async def challenge_finish(challenge_id: str) -> bool:
+    item = _challenges.get(challenge_id)
+    if item is None or item.future.done():
+        return False
+    if item.page is not None:
+        async with item.lock:
+            text = await item.page.inner_text("body")
+        if not _interstitial(text):
+            _resolve(item, text)
+            return True
+        return False
+    try:
+        again = await fetch(item.url, item.blocked)
+    except (httpx.HTTPError, OSError, TimeoutError, ValueError):
+        return False
+    if again.get("http_status") == 200 and not _interstitial(again.get("text", "")):
+        if not item.future.done():
+            item.future.set_result(again)
+        return True
+    return False
+
+
+def challenge_skip(challenge_id: str) -> bool:
+    item = _challenges.get(challenge_id)
+    if item is None or item.future.done():
+        return False
+    item.future.set_result(None)
+    return True
+
+
+def _resolve(item: "Challenge", text: str) -> None:
+    if item.future.done():
+        return
+    item.future.set_result({"url": item.url, "http_status": 200, "content_type": "text/html",
+                            "text": text, "checked_at": now()})
+
+
+async def _browse(item: "Challenge") -> None:
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True, args=["--disable-dev-shm-usage", "--no-sandbox"])
+            page = await browser.new_page(viewport={"width": _VIEWPORT[0], "height": _VIEWPORT[1]})
+            item.page = page
+            item.mode = "browser"
+            await page.goto(item.url, wait_until="domcontentloaded", timeout=25000)
+            while not item.future.done():
+                async with item.lock:
+                    item.png = await page.screenshot(type="jpeg", quality=55)
+                    text = await page.inner_text("body")
+                if text and not _interstitial(text) and len(text) > 40:
+                    _resolve(item, text)
+                    break
+                await asyncio.sleep(1.2)
+            await browser.close()
+    except Exception:
+        item.mode = "external"
+        item.page = None
+    finally:
+        item.page = None
+
+
+async def present_challenge(url: str, blocked: list[str] | None = None) -> dict | None:
+    """Pause until the operator solves the check, or three minutes pass."""
+    item = Challenge(url, list(blocked or []))
+    _challenges[item.id] = item
+    item.task = asyncio.create_task(_browse(item))
+    try:
+        return await asyncio.wait_for(asyncio.shield(item.future), 180)
+    except TimeoutError:
+        if not item.future.done():
+            item.future.set_result(None)
+        return None
+    finally:
+        _challenges.pop(item.id, None)
+        if item.task and not item.task.done():
+            item.task.cancel()

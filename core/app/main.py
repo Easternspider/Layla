@@ -33,6 +33,7 @@ from app.api import (
     personas,
     projects,
     providers,
+    research,
     sandbox,
     servers,
     telegram,
@@ -149,6 +150,7 @@ app.include_router(agent.router, prefix=api_prefix)
 app.include_router(pentest_workbench.router, prefix=api_prefix)
 app.include_router(combos.router, prefix=api_prefix)
 app.include_router(audit.router, prefix=api_prefix)
+app.include_router(research.router, prefix=api_prefix)
 
 
 @app.get("/")

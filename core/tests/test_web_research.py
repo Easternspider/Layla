@@ -387,3 +387,18 @@ async def test_lead_and_child_can_search_then_read_advisory(client, monkeypatch,
     steps = [s for s in state['steps'] if s['kind'] == 'research']
     assert len(steps) == 2
     assert json.loads(steps[-1]['output'])['source_url'] == 'https://vendor.example/security'
+
+
+@pytest.mark.asyncio
+async def test_interstitial_waits_for_the_operator(monkeypatch):
+    async def fetch(url, blocked=(), *, max_bytes=web_research.MAX_BYTES):
+        return dict(response(url), http_status=403, content_type='text/html', text='Just a moment')
+
+    async def present(url, blocked=None):
+        assert url == 'https://vendor.example/security'
+        return dict(response(url), content_type='text/html', text='<p>Advisory body</p>')
+
+    monkeypatch.setattr(web_research, 'fetch', fetch)
+    monkeypatch.setattr(web_research, 'present_challenge', present)
+    result = await web_research.read_web_page('https://vendor.example/security')
+    assert 'Advisory body' in result['text']
