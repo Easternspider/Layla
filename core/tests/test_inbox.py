@@ -59,6 +59,35 @@ async def test_create_inbox_skips_a_rejected_domain(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mailbox_providers_are_tried_in_turn(monkeypatch):
+    inbox._cursor = 0
+    inbox._issued.clear()
+    seen = []
+
+    def serve(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        if request.url.host == "www.1secmail.com" and request.url.params.get("action") == "genRandomMailbox":
+            return httpx.Response(200, json=["layla@sec.test"])
+        if request.url.host == "www.1secmail.com" and request.url.params.get("action") == "getMessages":
+            return httpx.Response(200, json=[{"id": 7, "from": "noreply@target.test", "subject": "Confirm"}])
+        if request.url.host == "www.1secmail.com":
+            return httpx.Response(200, json={"id": 7, "from": "noreply@target.test", "subject": "Confirm", "textBody": "code 55"})
+        if request.url.host == "api.guerrillamail.com" and request.url.params.get("f") == "get_email_address":
+            return httpx.Response(200, json={"email_addr": "layla@guer.test", "sid_token": "sid"})
+        return httpx.Response(503)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    first = await inbox.create_inbox()
+    assert first["provider"] == "1secmail" and first["password"] == "1secmail"
+    letter = await inbox.read_inbox(first["address"], first["password"], "7")
+    assert "code 55" in letter["text"]
+    second = await inbox.create_inbox()
+    assert second["provider"] == "guerrilla" and second["password"] == "guerrilla:sid"
+    assert "api.mail.tm" not in seen
+
+
+@pytest.mark.asyncio
 async def test_read_requires_the_created_password():
     with pytest.raises(ValueError):
         await inbox.read_inbox("person@example.test", "")
