@@ -10,6 +10,7 @@ def test_agent_is_a_domain_and_lists_server_tools():
     assert {"list_servers", "server_command", "server_status", "server_install", "server_read",
             "lookup_cve", "search_cves", "create_inbox", "read_inbox", "tool_catalog"} <= set(agent_ops.SCHEMAS)
     assert "map_surface" not in agent_ops.SCHEMAS
+    assert "web_search" in agent_ops.NOTE and "не бери из памяти" in agent_ops.NOTE
 
 
 def test_a_task_can_be_limited_to_chosen_servers():
