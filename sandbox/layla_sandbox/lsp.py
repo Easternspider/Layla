@@ -292,8 +292,31 @@ class Session:
         uri = await self.open(body.path, body.text, language_id)
         if body.operation == "diagnostics":
             if self.capabilities.get("diagnosticProvider") not in (None, False):
-                result = await self.ask("textDocument/diagnostic", {"textDocument": {"uri": uri}})
-                result = {"ready": True, "items": result.get("items", []), "version": self.documents[uri][0]}
+                pulled = await self.ask("textDocument/diagnostic", {"textDocument": {"uri": uri}})
+                items = pulled.get("items", []) if isinstance(pulled, dict) else []
+                # typescript-language-server often answers the pull before semantic
+                # analysis and then publishes the real set (an empty publish can
+                # also arrive first). Wait for a non-empty publication.
+                if not items and self.language == "typescript":
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline and self.alive:
+                        published = self.diagnostics.get(uri) or {}
+                        if published.get("items"):
+                            items = published["items"]
+                            break
+                        self.signals[uri].clear()
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        try:
+                            await asyncio.wait_for(self.signals[uri].wait(), min(1.0, remaining))
+                        except TimeoutError:
+                            published = self.diagnostics.get(uri) or {}
+                            items = published.get("items") or items
+                            break
+                if not self.alive:
+                    raise LspError("Language server прервал анализ")
+                result = {"ready": True, "items": items, "version": self.documents[uri][0]}
             else:
                 if uri not in self.diagnostics:
                     await self.notify("textDocument/didSave", {"textDocument": {"uri": uri}})

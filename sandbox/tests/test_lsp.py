@@ -107,8 +107,15 @@ async def test_real_typescript_implementation_call_hierarchy_and_diagnostics(tmp
         for operation in ("documentSymbol", "workspaceSymbol"):
             result = await registry.query(ws, body("app.ts", text, operation, query="greet"))
             assert "greet" in json.dumps(result["result"])
-        diagnostics = await registry.query(ws, body("app.ts", text, "diagnostics"))
-        assert diagnostics["result"]["ready"] and any(item.get("code") == 2322 for item in diagnostics["result"]["items"])
+        diagnostics = None
+        for _ in range(3):
+            diagnostics = await registry.query(ws, body("app.ts", text, "diagnostics"))
+            items = diagnostics["result"]["items"]
+            if diagnostics["result"]["ready"] and any(str(item.get("code")) == "2322" for item in items):
+                break
+            await asyncio.sleep(0.5)
+        items = diagnostics["result"]["items"]
+        assert diagnostics["result"]["ready"] and any(str(item.get("code")) == "2322" for item in items), items
     finally:
         await registry.shutdown()
 
