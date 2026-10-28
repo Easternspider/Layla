@@ -36,7 +36,7 @@ import tech.layla.client.labelOf
 private data class Loaded(val text: String, val html: String = "", val raw: JSONObject? = null)
 
 @Composable
-fun WorkScreen(api: LaylaApi, route: Record, back: () -> Unit) {
+internal fun WorkScreen(api: LaylaApi, route: Record, back: () -> Unit) {
     var body by remember { mutableStateOf("Загрузка…") }
     var html by remember { mutableStateOf("") }
     var raw by remember { mutableStateOf<JSONObject?>(null) }
