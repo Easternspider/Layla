@@ -51,6 +51,7 @@ from app.schemas.chat import (
 from app.schemas.job import JobOut
 from app.services import (
     agent_git,
+    agent_ops,
     audit,
     code_hooks,
     code_lead,
@@ -1073,13 +1074,14 @@ async def run_chat(
             if transcript is not None:
                 messages = await transcript.load(messages)
             engine = code_lead.run if runtime is not None else project_agent.run
+            ops = agent_ops.Ops(maker, owner_id) if domain == "agent" else None
             async with aclosing(engine(prov, key, model, messages, root, permissions,
                                                  mode=mode, approve=approve, caps=caps, extra=extra,
                                                  runner=runner, git=git, mcp=mcp, runtime=runtime, workers=workers,
                                                  lsp=code_lsp.Client(owner_id, project_id, root) if domain == "code" else None,
                                                  workflow=code_hooks.Runtime(runner, permissions, mode=mode,
                                                                              session_id=chat_id) if domain == "code" else None,
-                                                 transcript=transcript, **({"job_id": h.job.id} if runtime else {}))) as stream:
+                                                 transcript=transcript, ops=ops, **({"job_id": h.job.id} if runtime else {}))) as stream:
                 async for event in stream:
                     if "workspace" in event:
                         # A control notification must not consume the first

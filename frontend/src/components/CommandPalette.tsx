@@ -23,6 +23,7 @@ export function CommandPalette({ open, close }: { open: boolean; close: () => vo
       { id: "pentest", label: "Пентест", hint: "домен", href: "/pentest" },
       { id: "osint", label: "OSINT", hint: "домен", href: "/osint" },
       { id: "design", label: "Дизайн", hint: "домен", href: "/design" },
+      { id: "agent", label: "Агент", hint: "домен", href: "/agent" },
     ];
     for (const item of engagements.data || []) rows.push({ id: item.id, label: item.target, hint: "пентест", href: `/pentest?engagement=${item.id}`, detail: { engagement_id: item.id } });
     for (const item of cases.data || []) rows.push({ id: item.id, label: item.subject, hint: "osint", href: `/osint?case=${item.id}` });

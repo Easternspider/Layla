@@ -20,7 +20,7 @@ from app.security import crypto
 from app.security.jwt import COOKIE_NAME, create_session_token
 from app.services import telegram
 
-DOMAINS = {"code": "Код", "pentest": "Пентест", "osint": "OSINT", "design": "Дизайн"}
+DOMAINS = {"code": "Код", "pentest": "Пентест", "osint": "OSINT", "design": "Дизайн", "agent": "Агент"}
 HELP = """Лейла — управление агентом
 /menu — панель управления
 /domains — разделы
@@ -148,6 +148,11 @@ class Panel:
         await self.reply("Выберите раздел", [[self.button(label, "domain", domain=key)] for key, label in DOMAINS.items()])
 
     async def targets(self, page=0):
+        if self.domain == "agent":
+            rows = await self.call("GET", "/chats?domain=agent")
+            items = [(row.get("title") or "Чат", {"id": row["id"], "domain": "agent"}) for row in rows]
+            await self.choose("Выберите задачу", items, "target", page, kind="targets")
+            return
         path = {"code": "/projects", "pentest": "/engagements", "osint": "/osint/cases", "design": "/designs"}[self.domain]
         rows = await self.call("GET", path)
         items = []
@@ -161,6 +166,11 @@ class Panel:
     async def select_target(self, id, domain):
         if domain != self.domain:
             raise RuntimeError("Сначала выберите соответствующий раздел")
+        if domain == "agent":
+            chat = await self.call("GET", "/chats/" + id)
+            self.state.update(target_id=id, target_name=chat.get("title") or "Чат", chat_id=id)
+            await self.menu()
+            return
         path = {"code": "/projects", "pentest": "/engagements", "osint": "/osint/cases", "design": "/designs"}[domain]
         if domain == "code":
             rows = await self.call("GET", path)
@@ -237,6 +247,10 @@ class Panel:
 
     async def new_target(self):
         self.state["input"] = "new_target"
+        if self.domain == "agent":
+            self.state.pop("input", None)
+            await self.reply("Задача агента — это чат. Нажмите «Новый чат / запуск».")
+            return
         await self.reply({"code": "Введите название проекта", "pentest": "Введите домен или URL сайта",
             "osint": "Введите домен для нового OSINT-дела", "design": "Опишите новый макет сайта"}[self.domain] + ". /cancel — отмена.")
 

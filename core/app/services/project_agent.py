@@ -797,7 +797,7 @@ async def run(
     provider, key, model: str, messages: list[dict], root: str, permissions=None,
     *, mode: str = "auto", approve=None, caps: dict | None = None, extra: str = "", runner=None,
     git=None, mcp=None, runtime=None, workers=None, worker_context=False, lsp=None, workflow=None, tool_allowlist=None,
-    team=None, transcript=None, workspace=None, continuation=False, budget=None,
+    team=None, transcript=None, workspace=None, continuation=False, budget=None, ops=None,
 ):
     """approve(event) -> "approve" | "reject" | "approve_all" — только для режима confirm.
 
@@ -848,6 +848,12 @@ async def run(
     run_specs = []
     if runner is not None and code_runner.can_run(permissions) and mode != "plan":
         run_specs = await runner.tools()
+    if ops is not None:
+        from app.services import agent_ops
+        ops_specs = ops.tools()
+        if mode in READ_ONLY_MODES:
+            ops_specs = [tool for tool in ops_specs if tool["function"]["name"] not in agent_ops.MUTATING]
+        available += ops_specs
     git_specs = agent_git.specs(mode) if git is not None and agent_git.can_use(permissions) else []
     available = available + run_specs + git_specs
     if mcp is not None and mode not in READ_ONLY_MODES:
@@ -879,6 +885,9 @@ async def run(
         + (("\n\n" + extra.strip()) if extra.strip() else "")
         + (("\n\n" + workflow_note) if workflow_note else "")
     )
+    if ops is not None:
+        from app.services.agent_ops import NOTE as agent_note
+        prompt += "\n\n" + agent_note
     if caps.get("tools") is False:
         prompt += NO_TOOLS_NOTE
     if "lsp" in allowed_names:
@@ -1386,6 +1395,35 @@ async def run(
                         final["error"] = str(outcome["error"])
                     else:
                         final["note"] = "MCP-инструмент выполнен"
+                    yield {"tool": final}
+                    conversation.append({"role": "tool", "tool_call_id": call["id"],
+                                         "content": json.dumps(outcome, ensure_ascii=False)[:60_000],
+                                         "is_error": "error" in outcome})
+                    continue
+                if ops is not None and name in ops.names and name in allowed_names:
+                    event = {"id": f"{round_number}:{call['id']}", "name": name,
+                             "path": str(arguments.get("server_id") or arguments.get("query") or "")[:300],
+                             "command": str(arguments.get("command") or "")[:2000], "status": "running"}
+                    yield {"tool": event}
+                    if name in {"server_command", "server_install"} and ask is not None:
+                        decision = await ask({**event, "status": "pending"})
+                        if decision == "approve_all":
+                            ask = None
+                        elif decision != "approve":
+                            outcome = {"error": "Пользователь отклонил команду на сервере."}
+                            yield {"tool": {**event, "status": "rejected", "error": outcome["error"]}}
+                            conversation.append({"role": "tool", "tool_call_id": call["id"],
+                                                 "content": json.dumps(outcome, ensure_ascii=False), "is_error": True})
+                            continue
+                    try:
+                        outcome = await ops.execute(name, arguments)
+                    except (ValidationError, ValueError, RuntimeError) as exc:
+                        outcome = {"error": str(exc)[:1500]}
+                    final = {**event, "status": "error" if "error" in outcome else "done"}
+                    if "error" in outcome:
+                        final["error"] = outcome["error"]
+                    else:
+                        final["note"] = "Инструмент агента выполнен"
                     yield {"tool": final}
                     conversation.append({"role": "tool", "tool_call_id": call["id"],
                                          "content": json.dumps(outcome, ensure_ascii=False)[:60_000],

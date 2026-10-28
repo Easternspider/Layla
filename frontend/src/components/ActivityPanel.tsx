@@ -6,7 +6,7 @@ import { Activity, Loader2 } from "lucide-react";
 import { api, type Job } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 
-const labels: Record<string, string> = { code: "Код", design: "Дизайн", pentest: "Пентест", osint: "OSINT" };
+const labels: Record<string, string> = { code: "Код", design: "Дизайн", pentest: "Пентест", osint: "OSINT", agent: "Агент" };
 const states = { queued: "В очереди", running: "Работает", done: "Готово", error: "Ошибка", cancelled: "Остановлено" };
 export function ActivityPanel() {
   const owner = useAuth(s => s.user?.id);

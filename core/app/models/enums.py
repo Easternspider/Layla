@@ -9,6 +9,7 @@ class Domain(str, enum.Enum):
     pentest = "pentest"
     osint = "osint"
     design = "design"
+    agent = "agent"
 
 
 class ProviderKind(str, enum.Enum):

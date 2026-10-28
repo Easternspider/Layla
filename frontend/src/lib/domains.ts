@@ -1,4 +1,4 @@
-import { Code2, Crosshair, Search, Palette, type LucideIcon } from "lucide-react";
+import { Bot, Code2, Crosshair, Search, Palette, type LucideIcon } from "lucide-react";
 
 export interface DomainDef {
   slug: string;
@@ -43,6 +43,14 @@ export const DOMAINS: DomainDef[] = [
     color: "#d0a4eb",
     tagline: "Генерация UI-артефактов (HTML/React/Vue) по брифу.",
     tabs: ["Бриф", "Превью", "Код", "Дизайн-система"],
+  },
+  {
+    slug: "agent",
+    label: "Агент",
+    icon: Bot,
+    color: "#8eb6ff",
+    tagline: "Задачи по своим серверам: состояние, установка, файлы и поиск.",
+    tabs: ["Задачи", "Серверы"],
   },
 ];
 
