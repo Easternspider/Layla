@@ -342,7 +342,7 @@ class PageText(HTMLParser):
 
 async def read_web_page(url: str, blocked: list[str] = ()) -> dict:
     response = await source(url, blocked)
-    if response.get('note') and _interstitial(response.get('text', '')):
+    if _interstitial(response.get('text', '')):
         solved = await present_challenge(response['url'], blocked)
         if not (solved and solved.get('http_status') == 200 and not _interstitial(solved.get('text', ''))):
             return {k: v for k, v in response.items() if k != 'text'}

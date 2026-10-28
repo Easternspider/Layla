@@ -21,6 +21,8 @@ def _has_column(bind, table: str, column: str) -> bool:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    if "agent_runs" not in sa.inspect(bind).get_table_names():
+        return
     if not _has_column(bind, "agent_runs", "provider_id"):
         op.add_column("agent_runs", sa.Column("provider_id", sa.String(36), nullable=True))
 
