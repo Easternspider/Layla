@@ -91,6 +91,12 @@ def _phase(kind: str | None, summary: str | None) -> str:
     return "ожидание"
 
 
+def _snippet(summary: str | None, output: str | None) -> str | None:
+    text = (summary or output or "").strip().splitlines()
+    line = text[0].strip() if text else ""
+    return line[:120] or None
+
+
 def _blocker(status: str | None, summary: str | None, output: str | None) -> str | None:
     if status == "awaiting_approval":
         return "команда ждёт подтверждения"
@@ -141,6 +147,7 @@ async def engagement_board(
             phase=_phase(step[3], step[1]) if step else "ожидание",
             last_at=step[4].isoformat() if step and step[4] is not None else None,
             blocker=_blocker(step[0], step[1], step[2]) if step else None,
+            snippet=_snippet(step[1], step[2]) if step else None,
         ))
     return items
 

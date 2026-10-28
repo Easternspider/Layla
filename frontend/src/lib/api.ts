@@ -599,6 +599,7 @@ export interface EngagementBoardItem {
   phase: string;
   last_at?: string | null;
   blocker?: string | null;
+  snippet?: string | null;
 }
 
 export interface Finding {
@@ -618,6 +619,7 @@ export interface PentestReport {
   id: string;
   format: string;
   sha256_source?: string | null;
+  body?: string | null;
   stats: Record<string, unknown>;
   status: string;
 }

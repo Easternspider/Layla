@@ -206,7 +206,7 @@ async def generate_report(
     report = Report(
         engagement_id=eid, format="markdown",
         stats={"findings": len(findings), "by_severity": by_sev, "by_status": by_status},
-        status="ok",
+        status="ok", body=markdown,
     )
     report.sha256_source = acunetix.sha256_of(markdown)
     session.add(report)
