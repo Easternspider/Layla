@@ -316,3 +316,106 @@ dialog::backdrop { background: rgb(4 8 16 / .72); backdrop-filter: blur(6px); }
   border-radius: 0 !important;
   border-color: rgb(255 255 255 / .08);
 }
+
+/* Design system: layered gray, square, quiet chrome, smooth. */
+:root {
+  --bg: #0b0d10;
+  --surface: #12151a;
+  --hover: #1a1e25;
+  --line: rgb(255 255 255 / .08);
+  --text: #e8eaed;
+  --muted: #8b929c;
+  --accent: #d4d7dc;
+}
+.app-shell,
+.login-shell,
+.settings-layout { background: var(--bg); color: var(--text); }
+.app-shell .app-main,
+.settings-content,
+.domain-detail,
+.domain-list,
+.code-workspace { background: var(--bg); }
+/* Settings sidebar matches domain lists. */
+.settings-sidebar {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  width: 240px;
+  padding: 8px 0 !important;
+}
+.settings-sidebar a { border-radius: 0 !important; }
+.settings-sidebar a[aria-current="page"] {
+  background: var(--hover);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+/* Dialogs and overlays. */
+[role="dialog"] > div,
+.login-card,
+.login-form,
+.settings-content > div > section,
+.surface-card,
+.chat-composer,
+.chat-bubble,
+.chat-message {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--surface);
+  border-color: var(--line);
+}
+[role="dialog"] { background: rgb(0 0 0 / .55); }
+[role="dialog"] > div {
+  border: 1px solid var(--line);
+  padding: 20px;
+}
+/* Inputs and buttons: square, quiet, smooth. */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea,
+.field-input,
+.primary-button,
+.secondary-button,
+.send-button,
+.suggestion-chip,
+.segment,
+.nav-pill,
+.icon-button {
+  border-radius: 0 !important;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.primary-button,
+.send-button { background: var(--accent); color: #111; }
+.secondary-button { background: transparent; border-color: var(--line); color: var(--text); }
+.secondary-button:hover,
+.icon-button:hover,
+.nav-pill:hover { background: var(--hover); }
+.field-input,
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--text);
+}
+.field-input:focus,
+input:focus,
+select:focus,
+textarea:focus { border-color: rgb(255 255 255 / .3); outline: none; }
+/* Login. */
+.login-shell { min-height: 100dvh; }
+.login-card,
+.login-form { background: var(--surface); border: 1px solid var(--line); }
+/* Chat. */
+.chat-composer { border: 1px solid var(--line); background: var(--surface); }
+.chat-user { background: var(--hover) !important; }
+.chat-model,
+.chat-assistant { background: transparent !important; }
+/* Smooth surface transitions. */
+.domain-columns,
+.domain-detail,
+.domain-list,
+.settings-sidebar,
+[role="dialog"] > div {
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
