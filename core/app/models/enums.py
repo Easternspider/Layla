@@ -69,6 +69,7 @@ class FindingStatus(str, enum.Enum):
     confirmed = "confirmed"
     false_positive = "false_positive"
     remediated = "remediated"
+    retested = "retested"
 
 
 class FindingSource(str, enum.Enum):

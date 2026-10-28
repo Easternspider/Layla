@@ -97,6 +97,10 @@ async def update_finding(
                        'finding_status': f.status.value}
         if body.status == FindingStatus.false_positive:
             record.status = 'rejected'
+        elif body.status == FindingStatus.remediated:
+            record.status = 'remediated'
+        elif body.status == FindingStatus.retested:
+            record.status = 'retested'
         elif body.status in (FindingStatus.open, FindingStatus.triaging):
             record.status = 'evidence' if record.data.get('evidence_step_ids') else 'hypothesis'
 
@@ -143,21 +147,35 @@ async def import_acunetix(
     return ReportOut.model_validate(report)
 
 
+_STATUS_LABEL = {
+    "open": "найдено",
+    "triaging": "найдено",
+    "confirmed": "доказано",
+    "remediated": "исправлено заказчиком",
+    "retested": "перепроверено",
+    "false_positive": "ложное",
+}
+
+
 @router.post("/reports/generate", response_model=ReportOut, status_code=201)
 async def generate_report(
     eid: str,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ReportOut:
-    """Сгенерировать markdown-отчёт по engagement (сводка находок)."""
+    """Сгенерировать markdown-отчёт по engagement (сводка находок и ретеста)."""
     e = await _owned_engagement(session, user, eid)
     findings = list(await session.scalars(select(Finding).where(Finding.engagement_id == eid)))
-    findings.sort(key=lambda f: _SEV_ORDER.get(f.severity, 9))
+    findings.sort(key=lambda f: (_SEV_ORDER.get(f.severity, 9), _STATUS_LABEL.get(getattr(f.status, "value", str(f.status)), "")))
 
     by_sev: dict[str, int] = {}
+    by_status: dict[str, int] = {}
     for f in findings:
         sv = f.severity.value if hasattr(f.severity, "value") else str(f.severity)
+        st = f.status.value if hasattr(f.status, "value") else str(f.status)
         by_sev[sv] = by_sev.get(sv, 0) + 1
+        label = _STATUS_LABEL.get(st, st)
+        by_status[label] = by_status.get(label, 0) + 1
 
     lines = [
         f"# Отчёт по engagement: {e.target}",
@@ -169,10 +187,14 @@ async def generate_report(
     ]
     for sv, n in by_sev.items():
         lines.append(f"- {sv}: {n}")
+    lines.append("\n## Сводка по ретесту")
+    for label, n in by_status.items():
+        lines.append(f"- {label}: {n}")
     lines.append("\n## Находки\n")
     for f in findings:
         sv = f.severity.value if hasattr(f.severity, "value") else str(f.severity)
-        lines.append(f"### [{sv}] {f.type} — {f.title or ''}")
+        st = f.status.value if hasattr(f.status, "value") else str(f.status)
+        lines.append(f"### [{sv}] {f.type} — {f.title or ''} ({_STATUS_LABEL.get(st, st)})")
         if f.url:
             lines.append(f"- URL: `{f.method or ''} {f.url}`")
         if f.param:
@@ -183,7 +205,7 @@ async def generate_report(
     markdown = "\n".join(lines)
     report = Report(
         engagement_id=eid, format="markdown",
-        stats={"findings": len(findings), "by_severity": by_sev},
+        stats={"findings": len(findings), "by_severity": by_sev, "by_status": by_status},
         status="ok",
     )
     report.sha256_source = acunetix.sha256_of(markdown)

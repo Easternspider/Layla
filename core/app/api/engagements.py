@@ -4,16 +4,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.models.agent import AgentConfig
-from app.models.enums import VenueMode
-from app.models.pentest import Engagement, Scope, Server, Venue
+from app.models.agent import AgentConfig, AgentRun, AgentStep
+from app.models.enums import Severity, VenueMode
+from app.models.pentest import Engagement, Finding, Scope, Server, Venue
 from app.models.user import User
 from app.schemas.pentest import (
     EngagementCreate,
+    EngagementBoardItem,
     EngagementOut,
     EngagementUpdate,
     OffensiveUpdate,
@@ -77,6 +78,71 @@ async def list_engagements(
         )
     )
     return [await _to_out(session, e) for e in rows]
+
+
+def _phase(kind: str | None, summary: str | None) -> str:
+    text = (summary or "").lower()
+    if kind == "triage" or "отчёт" in text or "report" in text:
+        return "отчёт"
+    if kind == "plan":
+        return "разведка"
+    if kind:
+        return "проверка"
+    return "ожидание"
+
+
+def _blocker(status: str | None, summary: str | None, output: str | None) -> str | None:
+    if status == "awaiting_approval":
+        return "команда ждёт подтверждения"
+    if status == "denied":
+        return "действие отклонено"
+    if status in {"blocked", "failed", "skipped"}:
+        text = (summary or output or status or "").strip().splitlines()
+        return (text[0] if text else status)[:180]
+    return None
+
+
+@router.get("/board", response_model=list[EngagementBoardItem])
+async def engagement_board(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[EngagementBoardItem]:
+    ids = list(await session.scalars(select(Engagement.id).where(Engagement.owner_id == user.id)))
+    if not ids:
+        return []
+    counts: dict[str, dict[str, int]] = {}
+    for eid, severity, count in await session.execute(
+        select(Finding.engagement_id, Finding.severity, func.count())
+        .where(Finding.engagement_id.in_(ids))
+        .group_by(Finding.engagement_id, Finding.severity)
+    ):
+        bucket = counts.setdefault(eid, {})
+        name = severity.value if hasattr(severity, "value") else str(severity)
+        bucket[name] = int(count)
+    latest: dict[str, tuple] = {}
+    steps = await session.execute(
+        select(AgentRun.engagement_id, AgentStep.status, AgentStep.summary, AgentStep.output,
+               AgentStep.kind, AgentStep.updated_at)
+        .join(AgentStep, AgentStep.run_id == AgentRun.id)
+        .where(AgentRun.owner_id == user.id, AgentRun.engagement_id.in_(ids))
+        .order_by(AgentStep.updated_at.desc())
+    )
+    for eid, status, summary, output, kind, at in steps:
+        if eid and eid not in latest:
+            latest[eid] = (status, summary, output, kind, at)
+    items = []
+    for eid in ids:
+        step = latest.get(eid)
+        crit = counts.get(eid, {})
+        items.append(EngagementBoardItem(
+            id=eid,
+            critical=crit.get(Severity.critical.value, 0),
+            high=crit.get(Severity.high.value, 0),
+            phase=_phase(step[3], step[1]) if step else "ожидание",
+            last_at=step[4].isoformat() if step and step[4] is not None else None,
+            blocker=_blocker(step[0], step[1], step[2]) if step else None,
+        ))
+    return items
 
 
 @router.post("", response_model=EngagementOut, status_code=201)

@@ -592,6 +592,15 @@ export interface Engagement {
   venue?: PentestVenue | null;
 }
 
+export interface EngagementBoardItem {
+  id: string;
+  critical: number;
+  high: number;
+  phase: string;
+  last_at?: string | null;
+  blocker?: string | null;
+}
+
 export interface Finding {
   id: string;
   severity: string;
