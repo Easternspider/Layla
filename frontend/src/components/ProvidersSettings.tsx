@@ -17,15 +17,17 @@ interface Provider {
   has_secret: boolean;
 }
 
-type GrokLogin = { login_id: string; user_code: string; verification_uri: string; expires_in: number; interval: number };
-type GrokPoll = { status: "pending" | "connected" | "expired" | "denied"; interval?: number; warning?: string };
+type AccountLogin = { login_id: string; user_code: string; verification_uri: string; expires_in: number; interval: number };
+type AccountPoll = { status: "pending" | "connected" | "expired" | "denied"; interval?: number; warning?: string };
 
-function GrokConnect() {
+function AccountConnect({ path, title, hint, button, page, connected, denied }: {
+  path: string; title: string; hint: string; button: string; page: string; connected: string; denied: string;
+}) {
   const qc = useQueryClient();
-  const [login, setLogin] = useState<GrokLogin | null>(null);
+  const [login, setLogin] = useState<AccountLogin | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const start = useMutation({ mutationFn: () => api.post<GrokLogin>("/providers/connect/grok/start", {}) });
+  const start = useMutation({ mutationFn: () => api.post<AccountLogin>(`/providers/connect/${path}/start`, {}) });
   useEffect(() => {
     if (!login) return;
     let cancelled = false;
@@ -33,10 +35,10 @@ function GrokConnect() {
     const expiresAt = Date.now() + login.expires_in * 1000;
     const poll = async () => {
       if (Date.now() >= expiresAt) {
-        setLogin(null); setError("Код истёк. Нажмите Connect Grok снова."); return;
+        setLogin(null); setError(`Код истёк. Нажмите ${button} снова.`); return;
       }
       try {
-        const result = await api.post<GrokPoll>(`/providers/connect/grok/${login.login_id}/poll`, {});
+        const result = await api.post<AccountPoll>(`/providers/connect/${path}/${login.login_id}/poll`, {});
         if (cancelled) return;
         if (result.status === "pending") {
           timer = setTimeout(poll, Math.max(1, result.interval ?? login.interval) * 1000);
@@ -44,12 +46,12 @@ function GrokConnect() {
         }
         setLogin(null);
         if (result.status === "connected") {
-          setMessage(result.warning ?? "Аккаунт Grok подключён. Модели доступны в выборе модели.");
+          setMessage(result.warning ?? connected);
           for (const key of ["providers", "provider-models", "models", "accounts-health"]) {
             qc.invalidateQueries({ queryKey: [key] });
           }
         } else {
-          setError(result.status === "denied" ? "Подключение отклонено в xAI." : "Код истёк. Нажмите Connect Grok снова.");
+          setError(result.status === "denied" ? denied : `Код истёк. Нажмите ${button} снова.`);
         }
       } catch (e) {
         if (cancelled) return;
@@ -59,7 +61,7 @@ function GrokConnect() {
     };
     timer = setTimeout(poll, login.interval * 1000);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [login, qc]);
+  }, [login, qc, path, button, connected, denied]);
   const connect = () => {
     setError(""); setMessage("");
     // Open synchronously on the click so browsers allow the login window.
@@ -76,22 +78,22 @@ function GrokConnect() {
   const cancel = async () => {
     if (!login) return;
     try {
-      await api.del(`/providers/connect/grok/${login.login_id}`);
+      await api.del(`/providers/connect/${path}/${login.login_id}`);
       setLogin(null); setError(""); setMessage("Подключение отменено.");
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось отменить вход"); }
   };
   return <div className="mb-5 rounded-xl border border-ink-700 bg-ink-800/30 p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="font-semibold">Grok · аккаунт</h2><p className="text-xs text-neutral-400">Войдите в xAI и подтвердите подключение. Доступ к моделям и лимиты определяет ваш аккаунт и подписка.</p></div>
-      <button type="button" className="primary-button text-sm" disabled={!!login || start.isPending} onClick={connect}>{start.isPending ? "Открываем вход…" : "Connect Grok"}</button>
+      <div><h2 className="font-semibold">{title}</h2><p className="text-xs text-neutral-400">{hint}</p></div>
+      <button type="button" className="primary-button text-sm" disabled={!!login || start.isPending} onClick={connect}>{start.isPending ? "Открываем вход…" : button}</button>
     </div>
     {login && <div className="mt-4 space-y-3 border-t border-ink-700 pt-4">
-      <p className="text-sm text-neutral-300">Подтвердите этот код на странице xAI:</p>
+      <p className="text-sm text-neutral-300">Подтвердите этот код на странице {page}:</p>
       <div className="flex items-center gap-3"><code className="select-all rounded bg-ink-900 px-3 py-2 text-xl font-bold tracking-widest">{login.user_code}</code>
         <button type="button" className="secondary-button text-xs" onClick={async () => {
           try { await navigator.clipboard.writeText(login.user_code); } catch { setError("Выделите код и скопируйте вручную."); }
         }}>Копировать</button></div>
-      <a href={login.verification_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-accent-300 underline">Открыть страницу входа xAI</a>
+      <a href={login.verification_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-accent-300 underline">Открыть страницу входа {page}</a>
       <p role="status" className="text-xs text-neutral-400">Ожидаем подтверждение… После входа модели загрузятся автоматически.</p>
       <button type="button" className="secondary-button text-xs" onClick={cancel}>Отмена</button>
     </div>}
@@ -180,7 +182,24 @@ export function ProvidersSettings() {
         <HttpKeyBanner />
       </div>
 
-      <GrokConnect />
+      <AccountConnect
+        path="grok"
+        title="Grok · аккаунт"
+        hint="Войдите в xAI и подтвердите подключение. Доступ к моделям и лимиты определяет ваш аккаунт и подписка."
+        button="Connect Grok"
+        page="xAI"
+        connected="Аккаунт Grok подключён. Модели доступны в выборе модели."
+        denied="Подключение отклонено в xAI."
+      />
+      <AccountConnect
+        path="codex"
+        title="Codex · аккаунт"
+        hint="В ChatGPT включите вход по коду устройства: Settings → Security. Затем подтвердите код. Это подписка ChatGPT, не ключ API OpenAI."
+        button="Connect Codex"
+        page="ChatGPT"
+        connected="Аккаунт Codex подключён. Модели доступны в выборе модели."
+        denied="Подключение отклонено в ChatGPT."
+      />
 
       {open && (
         <div className="mb-5 space-y-3 rounded-xl border border-ink-700/70 bg-ink-800/30 p-5">

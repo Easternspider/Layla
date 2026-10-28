@@ -121,10 +121,13 @@ async def _keys_for(session: AsyncSession, provider: Provider) -> list[tuple[str
     вернула строки, и сломанный ключ попадался «через раз». Отключённые ключи не
     берём, упёршиеся в лимит — в последнюю очередь.
     """
-    from app.services import grok_oauth
+    from app.services import codex_oauth, grok_oauth
     oauth_key = await grok_oauth.access_key(session, provider)
     if oauth_key:
         return [(provider.id, oauth_key, "Grok account")]
+    codex_key = await codex_oauth.access_key(session, provider)
+    if codex_key:
+        return [(provider.id, codex_key, "Codex account")]
     rows = list(
         await session.scalars(
             select(ProviderKey)
@@ -195,6 +198,17 @@ def _headers(provider: Provider, key: str | None) -> dict[str, str]:
         if data.get("user_id"):
             h["x-userid"] = data["user_id"]
         return h
+    from app.services.codex_oauth import ACCOUNT_HEADER, ORIGINATOR, TOKEN_PREFIX as CODEX_PREFIX
+    from app.services.codex_oauth import wire_credentials as codex_credentials
+    if key and key.startswith(CODEX_PREFIX):
+        data = codex_credentials(key)
+        h["Authorization"] = "Bearer " + data["access_token"]
+        account = data.get("account_id") or ""
+        if isinstance(account, str) and account and all(c.isalnum() or c in "._-" for c in account) and len(account) <= 80:
+            h[ACCOUNT_HEADER] = account
+        h["originator"] = ORIGINATOR
+        h["OpenAI-Beta"] = "responses=v1"
+        return h
     if _is_anthropic_native(provider):
         if key:
             h["x-api-key"] = key
@@ -214,17 +228,30 @@ async def list_models(provider: Provider, key: str | None) -> list[str]:
         resp = await client.get(url, headers=_headers(provider, key))
         resp.raise_for_status()
         data = resp.json()
-    items = data if isinstance(data, list) else data.get("data", [])
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = data.get("data") or data.get("models") or []
+    else:
+        items = []
+    from app.services.codex_oauth import TOKEN_PREFIX as CODEX_PREFIX
+    from app.services.grok_oauth import TOKEN_PREFIX as GROK_PREFIX
+    grok = bool(key and key.startswith(GROK_PREFIX))
+    codex = bool(key and key.startswith(CODEX_PREFIX))
     names: list[str] = []
     for it in items:
         if isinstance(it, dict) and it.get("hidden"):
             continue
-        from app.services.grok_oauth import TOKEN_PREFIX
         if isinstance(it, dict):
-            mid = (it.get("model") if key and key.startswith(TOKEN_PREFIX) else None) or it.get("id") or it.get("name")
+            if grok:
+                mid = it.get("model") or it.get("id") or it.get("name")
+            elif codex:
+                mid = it.get("slug") or it.get("id") or it.get("name")
+            else:
+                mid = it.get("id") or it.get("name")
         else:
             mid = None
-        if mid:
+        if isinstance(mid, str) and mid:
             names.append(mid)
     return names
 
@@ -237,10 +264,20 @@ async def stream_chat(
     kind == "content" — видимый ответ; kind == "reasoning" — размышление модели
     (reasoning-модели вроде kimi/deepseek-r1/o-серии отдают его отдельно).
     """
+    from app.services.codex_oauth import BASE_URL as CODEX_BASE
+    from app.services.codex_oauth import TOKEN_PREFIX as CODEX_PREFIX
     from app.services.grok_oauth import TOKEN_PREFIX
     if key and key.startswith(TOKEN_PREFIX):
         from app.services.grok_responses import stream_turn
         async for kind, value in stream_turn(provider, key, model, messages, []):
+            if kind in ("content", "reasoning"):
+                yield kind, value
+        return
+    if key and key.startswith(CODEX_PREFIX):
+        from app.services.grok_responses import stream_turn
+        async for kind, value in stream_turn(
+            provider, key, model, messages, [], base_url=CODEX_BASE, label="Codex"
+        ):
             if kind in ("content", "reasoning"):
                 yield kind, value
         return

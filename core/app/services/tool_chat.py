@@ -113,10 +113,13 @@ async def stream_turn(provider, key, model: str, messages: list[dict], tools: li
     caps = caps or {}
     if caps.get("tools") is False:
         tools = []
+    from app.services.codex_oauth import BASE_URL as CODEX_BASE
+    from app.services.codex_oauth import TOKEN_PREFIX as CODEX_PREFIX
     from app.services.grok_oauth import TOKEN_PREFIX
-    if key and key.startswith(TOKEN_PREFIX):
-        from app.services.grok_responses import stream_turn as grok_turn
-        async for item in grok_turn(provider, key, model, messages, tools, caps):
+    if key and (key.startswith(TOKEN_PREFIX) or key.startswith(CODEX_PREFIX)):
+        from app.services.grok_responses import stream_turn as responses_turn
+        kwargs = {"base_url": CODEX_BASE, "label": "Codex"} if key.startswith(CODEX_PREFIX) else {}
+        async for item in responses_turn(provider, key, model, messages, tools, caps, **kwargs):
             yield item
         return
     native = _is_anthropic_native(provider)

@@ -243,21 +243,23 @@ async def fetch_provider_models(
     """
     provider = await _owned_provider(session, user, provider_id)
     key = await provider_client.pick_key(session, provider)
-    from app.services import grok_oauth
+    from app.services import codex_oauth, grok_oauth
     grok_account = bool(key and key.startswith(grok_oauth.TOKEN_PREFIX))
+    codex_account = bool(key and key.startswith(codex_oauth.TOKEN_PREFIX))
     try:
         names = await provider_client.list_models(provider, key)
         if grok_account:
             names = grok_oauth.chat_models(names)
     except Exception as exc:  # сеть/провайдер
-        if grok_account:
-            raise HTTPException(502, "Не удалось загрузить модели Grok. Проверьте подписку и повторите позже.") from None
+        if grok_account or codex_account:
+            who = "Grok" if grok_account else "Codex"
+            raise HTTPException(502, f"Не удалось загрузить модели {who}. Проверьте подписку и повторите позже.") from None
         raise HTTPException(status_code=502, detail=f"Не удалось загрузить модели: {exc}") from exc
 
     prev = {m["name"]: bool(m.get("enabled", True)) for m in (provider.models or [])}
     merged = [{"name": n, "enabled": prev.get(n, True)} for n in names]
     provider.models = merged
-    if grok_account:
+    if grok_account or codex_account:
         provider.active = provider.enabled = bool(names)
         if names and provider.default_model not in names:
             provider.default_model = names[0]
@@ -408,4 +410,106 @@ async def poll_grok_login(login_id: str, user: User = Depends(get_current_user),
 async def cancel_grok_login(login_id: str, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     from app.models.grok_login import GrokLogin
     await session.execute(delete(GrokLogin).where(GrokLogin.id == login_id, GrokLogin.owner_id == user.id))
+    await session.commit()
+
+
+@router.post("/connect/codex/start")
+async def start_codex_login(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    import json
+    import time
+    import httpx
+    from app.models.codex_login import CodexLogin
+    from app.services import codex_oauth
+
+    try:
+        device = await codex_oauth.request_device()
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from None
+    except (httpx.HTTPError, KeyError, TypeError):
+        raise HTTPException(502, "ChatGPT не удалось начать вход. Повторите позже.") from None
+    await session.execute(delete(CodexLogin).where(CodexLogin.owner_id == user.id))
+    now = time.time()
+    pending = CodexLogin(owner_id=user.id, secret_ref=crypto.encrypt(json.dumps({
+        "device_auth_id": device["device_auth_id"], "user_code": device["user_code"],
+        "client_id": codex_oauth.CLIENT_ID,
+    })), expires_at=now + device["expires_in"], interval=device["interval"], next_poll=now + device["interval"])
+    session.add(pending)
+    await session.commit()
+    return {"login_id": pending.id, "user_code": device["user_code"],
+            "verification_uri": device["verification_uri"],
+            "expires_in": device["expires_in"], "interval": device["interval"]}
+
+
+@router.post("/connect/codex/{login_id}/poll")
+async def poll_codex_login(login_id: str, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    import json
+    import time
+    import httpx
+    from app.models.enums import ProviderKind
+    from app.models.codex_login import CodexLogin
+    from app.services import codex_oauth
+
+    pending = await session.scalar(select(CodexLogin).where(CodexLogin.id == login_id,
+        CodexLogin.owner_id == user.id).with_for_update())
+    if not pending:
+        raise HTTPException(404, "Подключение не найдено. Начните вход снова.")
+    if pending.provider_id:
+        return {"status": "connected", "provider_id": pending.provider_id}
+    now = time.time()
+    if pending.expires_at <= now:
+        await session.delete(pending)
+        await session.commit()
+        return {"status": "expired"}
+    if now < pending.next_poll:
+        return {"status": "pending", "interval": max(1, pending.next_poll - now)}
+    device = json.loads(crypto.decrypt(pending.secret_ref))
+    try:
+        tokens = await codex_oauth.poll(device)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raise HTTPException(502, "Не удалось проверить вход в ChatGPT. Повторите позже.") from None
+    error = tokens.get("error")
+    if error in ("authorization_pending", "slow_down"):
+        if error == "slow_down":
+            pending.interval += 5
+        pending.next_poll = time.time() + pending.interval
+        await session.commit()
+        return {"status": "pending", "interval": pending.interval}
+    if error:
+        await session.delete(pending)
+        await session.commit()
+        return {"status": "denied" if error == "access_denied" else "expired"}
+    creds = codex_oauth.credentials(tokens, {"client_id": device.get("client_id", codex_oauth.CLIENT_ID)})
+    provider = await session.scalar(select(Provider).where(Provider.owner_id == user.id,
+        Provider.name == "Codex (аккаунт)", Provider.base_url == codex_oauth.BASE_URL).with_for_update())
+    if not provider:
+        provider = Provider(owner_id=user.id, name="Codex (аккаунт)", kind=ProviderKind.openai_compatible,
+                            base_url=codex_oauth.BASE_URL, active=False, enabled=False)
+        session.add(provider)
+    provider.secret_ref = crypto.encrypt(json.dumps(creds))
+    await session.flush()
+    pending.provider_id = provider.id
+    pending.secret_ref = crypto.encrypt("{}")
+    await audit.record(session, actor=user.id, action="provider.connect.codex", target=provider.id)
+    await session.commit()
+    try:
+        names = await provider_client.list_models(provider, codex_oauth.wire_key(creds))
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        return {"status": "connected", "provider_id": provider.id,
+                "warning": "Аккаунт подключён. Список моделей пока не загружен — нажмите «Загрузить модели» у провайдера."}
+    if not names:
+        return {"status": "connected", "provider_id": provider.id,
+                "warning": "Аккаунт подключён, но ChatGPT не вернул моделей. Проверьте подписку и доступ аккаунта."}
+    previous = {m["name"]: m.get("enabled", True) for m in provider.models or []}
+    provider.models = [{"name": n, "enabled": previous.get(n, True)} for n in names]
+    if provider.default_model not in names:
+        provider.default_model = names[0]
+    provider.enabled = provider.active = True
+    await session.commit()
+    return {"status": "connected", "provider_id": provider.id}
+
+
+@router.delete("/connect/codex/{login_id}", status_code=204)
+async def cancel_codex_login(login_id: str, user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    from app.models.codex_login import CodexLogin
+    await session.execute(delete(CodexLogin).where(CodexLogin.id == login_id, CodexLogin.owner_id == user.id))
     await session.commit()

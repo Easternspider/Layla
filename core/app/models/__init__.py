@@ -13,6 +13,7 @@ from app.models.code_workspace import CodeWorkspace, CodeWorkspaceCheckpoint
 from app.models.combo import Combo
 from app.models.design import Design
 from app.models.git import GitCredential
+from app.models.codex_login import CodexLogin
 from app.models.grok_login import GrokLogin
 from app.models.job import Job
 from app.models.knowledge import KnowledgeChunk, KnowledgeDoc
@@ -54,6 +55,7 @@ __all__ = [
     "CodeWorker",
     "CodeWorkspace",
     "CodeWorkspaceCheckpoint",
+    "CodexLogin",
     "Combo",
     "Design",
     "Engagement",
