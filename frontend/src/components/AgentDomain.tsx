@@ -47,7 +47,10 @@ export function AgentDomain() {
   const chosen = chats.data?.find(chat => chat.id === chatId)?.server_ids || [];
   const setServers = useMutation({
     mutationFn: (server_ids: string[]) => api.put(`/chats/${chatId}/servers`, { server_ids }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["chats", owner, "agent", undefined] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["chats", owner, "agent", undefined] });
+      if (chatId) qc.invalidateQueries({ queryKey: ["chat", owner, chatId] });
+    },
     onError: err => setError(err instanceof Error ? err.message : "Выбор серверов не сохранился"),
   });
   const create = useMutation({

@@ -282,10 +282,11 @@ export function OsintDomain() {
     const url = new URL(window.location.href); url.searchParams.set("case", id); window.history.replaceState(null, "", url);
   };
   const working = new Set((jobs.data || []).filter(job => job.domain === "osint").map(job => String(job.result?.case_id || "")));
+  const needle = q.trim().toLowerCase();
   const rows = ordered.map(item => ({
     id: item.id, title: item.subject, pinned: pins.includes(item.id), working: working.has(item.id) || busyId === item.id,
     subtitle: `${subjectLabels[item.subject_type]} · ${item.artifact_count}`, updatedAt: item.updated_at || item.created_at,
-  }));
+  })).filter(row => !needle || `${row.title} ${row.subtitle}`.toLowerCase().includes(needle));
   useListKeys(folderIds(rows), selected, openCase, () => setShowCreate(true));
   return <div className="flex h-full min-h-0 bg-black text-neutral-200">
     <WorkRail title="Кейсы" storageKey="layla:osint:list" railOpen={rail && !!selected && main === "case"} onCloseRail={() => setRail(false)} query={q} onQuery={setQ} active={selected} onOpen={openCase} onCreate={() => setShowCreate(v => !v)}

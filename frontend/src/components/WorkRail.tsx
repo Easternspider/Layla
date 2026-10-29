@@ -124,6 +124,8 @@ export function WorkRail({
       return next;
     });
   }
+  const needle = query.trim().toLowerCase();
+  const shown = needle ? rows.filter(row => `${row.title} ${row.subtitle || ""}`.toLowerCase().includes(needle)) : rows;
   if (!open) {
     return (
       <aside className="m-2 flex w-9 shrink-0 flex-col items-center rounded-2xl bg-[#1c1c1e] py-2">
@@ -147,8 +149,9 @@ export function WorkRail({
       </label>
       <div className="flex-1 overflow-y-auto py-1 text-xs">
         {!rows.length && <p className="px-3 py-4 text-neutral-600">{empty || "Список пуст."}</p>}
+        {!!rows.length && !shown.length && <p className="px-3 py-4 text-neutral-600">Ничего не найдено.</p>}
         {FOLDERS.map(([name, label]) => {
-          const group = rows.filter(row => bucket(row) === name);
+          const group = shown.filter(row => bucket(row) === name);
           if (!group.length) return null;
           return (
             <div key={name}>

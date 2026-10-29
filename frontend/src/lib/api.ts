@@ -285,6 +285,7 @@ export interface ToolEvent {
   note?: string;
   exit_code?: number | null;
   duration_s?: number;
+  timeout_s?: number;
   timed_out?: boolean;
   signal?: string | number | null;
 }
@@ -654,6 +655,7 @@ export interface AgentStep {
   summary?: string | null;
   output?: string | null;
   worker_id?: string | null;
+  created_at?: string | null;
 }
 
 export interface AgentWorker {
@@ -674,6 +676,18 @@ export interface AgentRun {
   budget_used: Record<string, unknown>;
   steps: AgentStep[];
   workers: AgentWorker[];
+}
+
+export function downloadText(filename: string, text: string, type = "text/markdown;charset=utf-8"): void {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export async function downloadWorker(id: string): Promise<void> {

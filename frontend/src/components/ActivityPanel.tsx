@@ -30,11 +30,28 @@ export function ActivityPanel() {
         const chat = job.chat_id || job.result.chat_id;
         if (chat) qc.invalidateQueries({ queryKey: ["chat", owner, chat] });
         if (job.status === "done") { qc.invalidateQueries({ queryKey: ["designs"] }); qc.invalidateQueries({ queryKey: ["findings"] }); }
-        if ((prev === "running" || prev === "queued") && (job.status === "done" || job.status === "error") && !pathname.startsWith(`/${job.domain}`)) setNotice(job);
+        if ((prev === "running" || prev === "queued") && (job.status === "done" || job.status === "error")) {
+          if (document.hidden) notify(job);
+          else if (!pathname.startsWith(`/${job.domain}`)) setNotice(job);
+        }
       }
       previous.current.set(job.id, job.status);
     }
+    const live = data.some(job => job.status === "running" || job.status === "queued");
+    try {
+      if (live && document.hidden && typeof Notification !== "undefined" && Notification.permission === "default" && !sessionStorage.getItem("layla:notify-asked")) {
+        sessionStorage.setItem("layla:notify-asked", "1");
+        void Notification.requestPermission().catch(() => undefined);
+      }
+    } catch { /* Приватный режим может запретить sessionStorage. */ }
   }, [data, owner, qc, pathname]);
+  function notify(job: Job) {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const note = new Notification(job.status === "error" ? "Layla: ошибка" : "Layla: готово", {
+      body: `${labels[job.domain] || job.domain} · ${job.title}`,
+    });
+    note.onclick = () => { window.focus(); open(job); note.close(); };
+  }
   function open(job: Job) {
     const chat = job.chat_id || job.result.chat_id;
     const project = job.result.project_id;

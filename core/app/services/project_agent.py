@@ -1404,6 +1404,12 @@ async def run(
                     event = {"id": f"{round_number}:{call['id']}", "name": name,
                              "path": str(arguments.get("server_id") or arguments.get("query") or "")[:300],
                              "command": str(arguments.get("command") or "")[:2000], "status": "running"}
+                    if name == "server_command":
+                        raw = arguments.get("timeout", 600)
+                        try:
+                            event["timeout_s"] = min(3600, max(30, int(raw)))
+                        except (TypeError, ValueError):
+                            event["timeout_s"] = 600
                     yield {"tool": event}
                     if name in {"server_command", "server_install"} and ask is not None:
                         decision = await ask({**event, "status": "pending"})

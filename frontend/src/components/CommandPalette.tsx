@@ -10,13 +10,20 @@ type Hit = { id: string; label: string; hint: string; href: string; detail?: Rec
 export function CommandPalette({ open, close }: { open: boolean; close: () => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [needle, setNeedle] = useState("");
   const [cursor, setCursor] = useState(0);
   const enabled = open;
+  useEffect(() => { const timer = window.setTimeout(() => setNeedle(query.trim()), 250); return () => window.clearTimeout(timer); }, [query]);
   const engagements = useQuery({ queryKey: ["engagements"], enabled, queryFn: () => api.get<Engagement[]>("/engagements") });
   const cases = useQuery({ queryKey: ["osint", "palette"], enabled, queryFn: () => api.get<OsintCase[]>("/osint/cases?limit=50&offset=0") });
   const projects = useQuery({ queryKey: ["projects"], enabled, queryFn: () => api.get<Project[]>("/projects") });
   const designs = useQuery({ queryKey: ["designs"], enabled, queryFn: () => api.get<Design[]>("/designs") });
   const chats = useQuery({ queryKey: ["chats", "palette"], enabled, queryFn: () => api.get<Chat[]>("/chats?limit=80") });
+  const foundChats = useQuery({
+    queryKey: ["chats", "palette", "text", needle],
+    enabled: enabled && needle.length >= 2,
+    queryFn: () => api.get<Chat[]>(`/chats?q=${encodeURIComponent(needle)}`),
+  });
   const hits = useMemo(() => {
     const rows: Hit[] = [
       { id: "code", label: "Код", hint: "домен", href: "/code" },
@@ -33,9 +40,23 @@ export function CommandPalette({ open, close }: { open: boolean; close: () => vo
       rows.push({ id: item.id, label: title, hint: "дизайн", href: `/design?design=${item.id}`, detail: { design_id: item.id } });
     }
     for (const item of chats.data || []) rows.push({ id: item.id, label: item.title || "Чат", hint: item.domain, href: `/${item.domain}?chat=${item.id}${item.project_id ? `&project=${item.project_id}` : ""}`, detail: { id: item.id, domain: item.domain, project_id: item.project_id || "" } });
-    const needle = query.trim().toLowerCase();
-    return needle ? rows.filter(row => `${row.label} ${row.hint}`.toLowerCase().includes(needle)) : rows;
-  }, [query, engagements.data, cases.data, projects.data, designs.data, chats.data]);
+    const needleText = query.trim().toLowerCase();
+    const local = needleText ? rows.filter(row => `${row.label} ${row.hint}`.toLowerCase().includes(needleText)) : rows;
+    if (!needleText) return local;
+    const seen = new Set(local.map(hit => hit.id));
+    for (const item of foundChats.data || []) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      local.push({
+        id: item.id,
+        label: item.title || "Чат",
+        hint: `${item.domain} · текст`,
+        href: `/${item.domain}?chat=${item.id}${item.project_id ? `&project=${item.project_id}` : ""}`,
+        detail: { id: item.id, domain: item.domain, project_id: item.project_id || "" },
+      });
+    }
+    return local;
+  }, [query, engagements.data, cases.data, projects.data, designs.data, chats.data, foundChats.data]);
   useEffect(() => { setCursor(0); }, [query, open]);
   useEffect(() => {
     if (!open) return;
@@ -59,12 +80,13 @@ export function CommandPalette({ open, close }: { open: boolean; close: () => vo
   return (
     <div role="dialog" aria-modal="true" aria-label="Поиск по Layla" className="fixed inset-0 z-[80] grid place-items-start bg-black/60 p-4 pt-[12vh]" onClick={close}>
       <div onClick={e => e.stopPropagation()} className="w-full max-w-xl overflow-hidden rounded-[20px] bg-[#1c1c1e] shadow-floating">
-        <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Домен, чат, кейс, проект" aria-label="Команда" className="w-full border-0 border-b border-white/10 bg-transparent px-4 py-3.5 text-base outline-none" />
+        <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Домен, название или текст чата" aria-label="Команда" className="w-full border-0 border-b border-white/10 bg-transparent px-4 py-3.5 text-base outline-none" />
         <div className="max-h-80 overflow-y-auto p-1.5">
+          {foundChats.isFetching && <p className="px-3 py-1 text-[11px] text-neutral-500">Ищем в переписке…</p>}
           {!hits.length && <p className="px-4 py-6 text-sm text-neutral-500">Ничего не найдено.</p>}
           {hits.slice(0, 40).map((hit, index) => (
             <button key={`${hit.hint}:${hit.id}`} onMouseEnter={() => setCursor(index)} onClick={() => go(hit)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm ${index === cursor ? "bg-[#0A84FF] text-white" : "text-neutral-200"}`}>
-              <span className={`w-16 shrink-0 text-[11px] ${index === cursor ? "text-white/80" : "text-neutral-500"}`}>{hit.hint}</span>
+              <span className={`w-24 shrink-0 truncate text-[11px] ${index === cursor ? "text-white/80" : "text-neutral-500"}`}>{hit.hint}</span>
               <span className="truncate">{hit.label}</span>
             </button>
           ))}

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send, Bot, Plus, Loader2, Download, Square, Trash2, Eraser, Zap, ShieldCheck, ClipboardList, ChevronDown, Pencil, Check, Search, FoldVertical, Undo2, Play, SearchCheck, BookMarked, ListChecks, CircleCheck, CircleDot, Circle, X, Users, Link2, type LucideIcon } from "lucide-react";
-import { ApiError, GIT_TOOLS, RUN_TOOLS, api, downloadProject, type FileContent, type Persona, type ModelInfo, type Chat, type ChatDetail, type FileChange, type Job, type ToolEvent } from "@/lib/api";
+import { ApiError, GIT_TOOLS, RUN_TOOLS, api, downloadProject, downloadText, type FileContent, type Persona, type ModelInfo, type Chat, type ChatDetail, type FileChange, type Job, type ToolEvent, type PentestServer, type ChatMessage } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import { FileDiff } from "@/components/FileDiff";
 import { RunCard } from "@/components/RunOutput";
@@ -15,6 +15,7 @@ import { CodeLeadPanel } from "@/components/CodeLeadPanel";
 import { CodeSkillPicker } from "@/components/CodeSkillPicker";
 import { CaptchaGate } from "@/components/CaptchaGate";
 import { confirmAction } from "@/components/ConfirmDialog";
+import { RunningNote } from "@/components/RunningNote";
 
 const active = (job?: Job | null) => !!job && ["queued", "running"].includes(job.status);
 
@@ -30,6 +31,39 @@ const MODES: { id: Mode; label: string; hint: string; icon: LucideIcon }[] = [
 const isMode = (value: string | null): value is Mode => MODES.some(m => m.id === value);
 const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const remember = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Storage can be unavailable. */ } };
+
+function serverWord(count: number) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "сервер";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "сервера";
+  return "серверов";
+}
+
+function fileName(value: string) {
+  const clean = (value || "chat").replace(/[^\w\u0400-\u04FF.-]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+  return `${clean || "chat"}.md`;
+}
+
+function chatMarkdown(title: string, messages: ChatMessage[]) {
+  const lines = [`# ${title}`, ""];
+  for (const message of messages) {
+    if (message.meta?.kind === "summary") {
+      lines.push("## Сводка", message.content || "", "");
+      continue;
+    }
+    lines.push(message.role === "user" ? "## Вы" : "## Layla", message.content || "", "");
+    for (const tool of message.meta?.tools || []) {
+      lines.push(`### ${tool.name} · ${tool.status}`);
+      if (tool.command) lines.push("```", tool.command, "```");
+      if (tool.output) lines.push(tool.output);
+      if (tool.note) lines.push(tool.note);
+      if (tool.error) lines.push(tool.error);
+      lines.push("");
+    }
+  }
+  return lines.join("\n");
+}
 
 // crypto.randomUUID есть только в защищённом контексте (HTTPS или localhost).
 // По обычному HTTP его нет, поэтому собираем UUID v4 из getRandomValues,
@@ -98,6 +132,23 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const loading = !!chatId && detail.isPending;
   const approval = (running ? job?.result?.approval : null) as { id: string } | null | undefined;
   const messages = useMemo(() => detail.data?.messages || [], [detail.data?.messages]);
+  const servers = useQuery({ queryKey: ["servers"], enabled: domain === "agent", queryFn: () => api.get<PentestServer[]>("/servers") });
+  const scopeIds = detail.data?.server_ids || [];
+  const scopeHosts = (servers.data || []).filter(server => scopeIds.includes(server.id)).map(server => server.host);
+  const scopeLabel = domain === "agent" && scopeIds.length ? `${scopeIds.length} ${serverWord(scopeIds.length)}${scopeHosts.length ? ` · ${scopeHosts.join(", ")}` : ""}` : "";
+  const lastCommand = useMemo(() => {
+    if (domain !== "agent") return null;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const tools = messages[index].meta?.tools || [];
+      for (let toolIndex = tools.length - 1; toolIndex >= 0; toolIndex -= 1) {
+        const tool = tools[toolIndex];
+        if (tool.name === "server_command" && tool.command && tool.status !== "running" && tool.status !== "pending") return tool;
+      }
+    }
+    return null;
+  }, [domain, messages]);
+  const liveTool = messages.flatMap(message => message.meta?.tools || []).find(tool => tool.status === "running" && (tool.name === "server_command" || RUN_TOOLS.has(tool.name)));
+  const runningCeiling = liveTool?.name === "server_command" ? (liveTool.timeout_s || 600) : liveTool && RUN_TOOLS.has(liveTool.name) ? 900 : 0;
 
   function select(id: string | null) {
     generation.current++;
@@ -396,8 +447,10 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       {detail.data?.project_id && <button onClick={zip} className="icon-button" aria-label="Скачать файлы чата ZIP"><Download className="h-4 w-4" /></button>}
       {chatId && <button aria-label="Удалить чат" title="Удалить чат" onClick={removeChat} disabled={sending || removing || !ready} className="icon-button hover:bg-red-500/15 hover:text-red-300">{removing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button>}
       {chatId && <button aria-label={copiedLink ? "Скопировано" : "Скопировать ссылку на чат"} className="icon-button" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("chat", chatId); if (projectId) url.searchParams.set("project", projectId); navigator.clipboard.writeText(url.toString()).catch(() => undefined); setCopiedLink(true); window.setTimeout(() => setCopiedLink(false), 1200); }}>{copiedLink ? <Check className="h-4 w-4 text-emerald-300" /> : <Link2 className="h-4 w-4" />}</button>}
+      {chatId && <button aria-label="Скачать переписку" title="Скачать переписку Markdown" className="icon-button" disabled={!messages.length} onClick={() => downloadText(fileName(detail.data?.title || "chat"), chatMarkdown(detail.data?.title || "Чат", messages))}><Download className="h-4 w-4" /></button>}
       <button aria-label="Новый чат" onClick={() => select(null)} disabled={sending || !ready} className="icon-button"><Plus className="h-5 w-5" /></button>
     </div>
+    {scopeLabel && <p className="border-b border-ink-700/40 px-4 py-1.5 text-[11px] text-neutral-400">Только выбранные: {scopeLabel}</p>}
     <div ref={scroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
       {domain === "code" && chatId && ready && <CodeWorkState key={`${scope}:${chatId}`} chatId={chatId} scope={scope} running={running} canApply={mode === "auto" || mode === "confirm"} onResume={text => send({ text, mode })} />}
       {history.isError || detail.isError ? <p role="alert" className="text-red-300">Не удалось загрузить историю. <button onClick={() => { history.refetch(); detail.refetch(); }} className="underline">Повторить</button></p> : !ready || (chatId && detail.isPending) ? <p className="text-sm text-neutral-500">Загрузка истории…</p> : !messages.length && <div className="chat-welcome mx-auto my-12 max-w-sm text-center"><div className="empty-orb mx-auto mb-5"><Bot className="h-7 w-7" /></div><h2 className="text-xl font-semibold">Что сделаем сегодня?</h2><p className="mt-3 text-sm leading-relaxed text-neutral-400">Опишите задачу. Можно переключаться между разделами и создавать новые чаты — работа продолжится, история и файлы сохранятся.</p></div>}
@@ -418,7 +471,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       </article>)}
     </div>
     {error && <p role="alert" className="mx-5 mb-3 text-sm text-red-300">{error}</p>}
-    {job && <div role="status" className="mx-5 mb-3 flex items-center gap-2 text-xs text-neutral-400">{running && <Loader2 className="h-4 w-4 animate-spin" />}<span className="min-w-0 flex-1 break-words">{running ? job.steps.at(-1)?.text || "Задача в очереди" : job.status === "error" ? job.error || "Ошибка выполнения" : job.status === "cancelled" ? "Остановлено" : "Готово"}</span>{running && <button onClick={stop} className="icon-button" aria-label="Остановить задачу"><Square className="h-3 w-3" /></button>}</div>}
+    {job && <div role="status" className="mx-5 mb-3 flex flex-wrap items-center gap-2 text-xs text-neutral-400">{running && <Loader2 className="h-4 w-4 animate-spin" />}<span className="min-w-0 flex-1 break-words">{running ? job.steps.at(-1)?.text || "Задача в очереди" : job.status === "error" ? job.error || "Ошибка выполнения" : job.status === "cancelled" ? "Остановлено" : "Готово"}</span>{running && <RunningNote start={job.created_at} ceiling={runningCeiling} />}{running && <button onClick={stop} className="icon-button" aria-label="Остановить задачу"><Square className="h-3 w-3" /></button>}</div>}
     {interrupted && <div className="mx-5 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/5 p-3 text-xs">
       <Play className="h-4 w-4 shrink-0 text-amber-200" /><span className="min-w-0 flex-1">Ход прерван. Уже сделанное сохранено — агент продолжит с того же места.</span>
       <button className="primary-button !px-3 !py-1.5 text-xs" onClick={() => send({ text: "Продолжи с того места, где остановился.", mode })}>Продолжить</button>
@@ -435,6 +488,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       <button className="secondary-button !px-3 !py-1.5 text-xs" onClick={() => { pickMode("confirm"); send({ text: "Выполни этот план.", mode: "confirm" }); }}>С подтверждением</button>
     </div>}
     <CaptchaGate />
+    {domain === "agent" && lastCommand && !running && <div className="mx-4 mb-2"><button className="secondary-button max-w-full text-xs" disabled={sending || !ready} onClick={() => send({ text: `Повтори без изменений последнюю команду server_command. Сервер: ${lastCommand.path || "тот же"}. Команда:\n${lastCommand.command}`, mode })}><Play className="h-3.5 w-3.5 shrink-0" /><span className="truncate">Повторить: {lastCommand.command}</span></button></div>}
     <div className="chat-composer mx-4 mb-4">
       <div role="radiogroup" aria-label="Режим агента" className="mb-2 flex flex-wrap gap-1 text-xs">
         {MODES.map(({ id, label, hint, icon: Icon }) => <button key={id} role="radio" aria-checked={mode === id} title={hint} onClick={() => pickMode(id)} className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ${mode === id ? "bg-accent-500/20 text-accent-100" : "text-neutral-400 hover:bg-ink-900"}`}><Icon className="h-3.5 w-3.5" />{label}</button>)}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -25,6 +26,7 @@ class AgentStepOut(BaseModel):
     summary: str | None = None
     output: str | None = None
     worker_id: str | None = None
+    created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
