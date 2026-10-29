@@ -50,7 +50,7 @@ settings = get_settings()
 # Прод-hardening: не стартуем с небезопасными дефолтами (спец. §7).
 _prod_problems = settings.validate_for_prod()
 if _prod_problems:
-    raise RuntimeError("Небезопасная конфигурация prod: " + "; ".join(_prod_problems))
+    raise RuntimeError("Небезопасная конфигурация: " + "; ".join(_prod_problems))
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):

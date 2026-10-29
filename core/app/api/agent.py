@@ -33,7 +33,7 @@ from app.schemas.agent import (
 )
 from app.schemas.job import JobOut
 from app.security import crypto
-from app.services import audit, jobs, orchestrator, provider_client, ssh_exec, venue_executor
+from app.services import audit, egress, jobs, orchestrator, provider_client, ssh_exec, venue_executor
 from app.services.auth import get_current_user
 from app.services.egress import EgressBlocked
 from app.services.venue_gate import ActionBlocked
@@ -50,14 +50,18 @@ def _ssh_config(server: Server) -> ssh_exec.SSHConfig:
     )
 
 
-def _attack_box_runner(server: Server | None, worker_directory: str | None = None, interrupt_key: str | None = None):
+def _attack_box_runner(server: Server | None, worker_directory: str | None = None,
+                       interrupt_key: str | None = None, via: tuple[str, int] | None = None):
     """runner для venue_executor + ячейка, куда попадёт ключ хоста для закрепления.
 
-    None → исполнителя нет (venue_executor поднимет NoExecutorConfigured за гейтами)."""
+    None → исполнителя нет (venue_executor поднимет NoExecutorConfigured за гейтами).
+    via — SOCKS5 выбранного egress. Прямой маршрут передаёт None.
+    """
     pin: dict = {"host_key": None}
     if server is None:
         return None, pin
     cfg = _ssh_config(server)
+    cfg.via = via
 
     async def runner(command: str) -> str:
         if worker_directory:
@@ -356,7 +360,14 @@ async def approve_step(
             if server is None or server.owner_id != e.owner_id:
                 raise ActionBlocked("Attack box не найден")
         from app.services.pentest_workers import remote_directory
-        runner, pin = _attack_box_runner(server, remote_directory(worker) if worker else None, step.id)
+        route = egress.effective_route(
+            vn.egress_route or EgressRoute.inherit,
+            server.egress_route if server is not None else None,
+        )
+        runner, pin = _attack_box_runner(
+            server, remote_directory(worker) if worker else None, step.id,
+            via=egress.proxy_endpoint(route),
+        )
         result = await venue_executor.execute(
             target=step.target or e.target,
             command=step.command,
@@ -365,7 +376,8 @@ async def approve_step(
             scope_confirmed=bool(sc and sc.confirmed),
             allow=(sc.allow if sc else []) or [],
             deny=(sc.deny if sc else []) or [],
-            egress_route=vn.egress_route or EgressRoute.inherit,
+            egress_route=route,
+            egress_probe=egress.probe_configured,
             runner=runner,
         )
         step.status = "done"

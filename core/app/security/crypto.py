@@ -25,10 +25,14 @@ def _load_key() -> bytes:
     settings = get_settings()
     raw = settings.secret_key or "layla-dev-only-insecure-key"
     try:
-        # Validate: a real Fernet key is 32 url-safe base64 bytes.
         Fernet(raw.encode())
         return raw.encode()
     except (ValueError, TypeError):
+        if settings.is_prod:
+            raise RuntimeError(
+                "LAYLA_SECRET_KEY в prod должен быть ключом Fernet. "
+                "Пример CHANGE_ME и произвольная фраза ключом не считаются."
+            ) from None
         digest = hashlib.sha256(raw.encode()).digest()
         return base64.urlsafe_b64encode(digest)
 

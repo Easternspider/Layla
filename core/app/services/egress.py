@@ -53,13 +53,46 @@ def assert_egress_available(
     if route in (EgressRoute.direct, EgressRoute.inherit):
         return EgressDecision(route, True, "Прямой маршрут")
 
-    ok = True if probe is None else bool(probe(route))
-    if not ok:
+    # Нет пробы — маршрут не доказан. Молча считать Tor/Proxy живым нельзя:
+    # иначе трафик уйдёт напрямую и источник раскроется.
+    if probe is None or not probe(route):
         raise EgressBlocked(
             f"Маршрут {route.value} недоступен — трафик заблокирован "
             f"(fail-closed, отката на Direct нет)"
         )
     return EgressDecision(route, True, f"Маршрут {route.value} исправен")
+
+
+def probe_configured(route: EgressRoute) -> bool:
+    """TCP-проба адреса Tor или Proxy из настроек. Нет адреса — маршрут мёртв."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    addr = settings.tor_addr if route == EgressRoute.tor else settings.proxy_addr
+    if not addr or ":" not in addr:
+        return False
+    host, _, port = addr.rpartition(":")
+    try:
+        return tcp_probe(host, int(port))
+    except ValueError:
+        return False
+
+
+def proxy_endpoint(route: EgressRoute) -> tuple[str, int] | None:
+    """Куда завернуть трафик. Direct — None, соединение обычное."""
+    if route not in (EgressRoute.tor, EgressRoute.proxy):
+        return None
+    from app.config import get_settings
+
+    settings = get_settings()
+    addr = settings.tor_addr if route == EgressRoute.tor else settings.proxy_addr
+    if not addr or ":" not in addr:
+        return None
+    host, _, port = addr.rpartition(":")
+    try:
+        return host, int(port)
+    except ValueError:
+        return None
 
 
 def tcp_probe(host: str, port: int, timeout: float = 3.0) -> bool:

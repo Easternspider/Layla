@@ -1,29 +1,37 @@
 """Импорт git-репозиториев (спец. §5.7).
 
-Клонирование выполняется на сервере оператора (single-tenant). URL валидируется
-(только http/https/git, есть хост), имя каталога санитизируется, клон делается
-поверхностным (--depth 1) в каталог проектов.
+Клонирование выполняется на сервере оператора. Только публичный https,
+без логина в URL, без локальных и служебных адресов. Процесс git не
+наследует секреты Layla, хуки и protocol.file отключены.
 """
 from __future__ import annotations
 
 import asyncio
-import os
+import ipaddress
 import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-_ALLOWED_SCHEMES = {"http", "https", "git"}
+from app.services import gitops, web_research
+
 _NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
 def validate_repo_url(url: str) -> str:
-    """Проверить URL репозитория; вернуть нормализованный или бросить ValueError."""
+    """Проверить URL репозитория; вернуть его или бросить ValueError."""
     url = (url or "").strip()
     parsed = urlparse(url)
-    if parsed.scheme not in _ALLOWED_SCHEMES:
-        raise ValueError("Недопустимая схема URL (разрешены http/https/git)")
-    if not parsed.netloc:
-        raise ValueError("В URL отсутствует хост")
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Репозиторий доступен только по https без логина и пароля")
+    host = parsed.hostname.rstrip(".").lower()
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if host == "localhost" or host.endswith(".local") or host.endswith(".internal"):
+            raise ValueError("Локальные адреса репозитория недоступны")
+    else:
+        if not address.is_global or address.is_multicast:
+            raise ValueError("Локальные и служебные адреса недоступны")
     return url
 
 
@@ -37,17 +45,20 @@ def safe_dir_name(url: str) -> str:
 
 async def clone(url: str, dest: str | Path, *, timeout: float = 300.0) -> None:
     """Поверхностно клонировать репозиторий в dest. Бросает RuntimeError при ошибке."""
+    url = validate_repo_url(url)
+    host = urlparse(url).hostname or ""
+    try:
+        await web_research.public_addresses(host)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # GIT_TERMINAL_PROMPT=0 — не зависать на приватных репозиториях, ожидая
-    # ввод логина/пароля; вместо этого git сразу завершится с ошибкой.
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
     try:
         proc = await asyncio.create_subprocess_exec(
             "git", "clone", "--depth", "1", url, str(dest),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            env=gitops._env(),
         )
     except FileNotFoundError as exc:
         raise RuntimeError(

@@ -173,10 +173,11 @@ services:
       - layla-frontend
       - layla-core
     ports:
-      - "80:80"
-      - "443:443"
+      # 0.0.0.0 — публичный хост остаётся доступен. Локальная копия: LAYLA_BIND_ADDR=127.0.0.1
+      - "${LAYLA_BIND_ADDR:-0.0.0.0}:80:80"
+      - "${LAYLA_BIND_ADDR:-0.0.0.0}:443:443"
       # Превью приложений из песочницы (отдельный адрес — изоляция от Лейлы).
-      - "${LAYLA_PREVIEW_PORT:-8090}:8090"
+      - "${LAYLA_BIND_ADDR:-0.0.0.0}:${LAYLA_PREVIEW_PORT:-8090}:8090"
     environment:
       # Адрес сайта для Caddy. По умолчанию http://localhost — простой HTTP без
       # авто-TLS и без редиректа. Для HTTPS укажите голый домен (example.com).

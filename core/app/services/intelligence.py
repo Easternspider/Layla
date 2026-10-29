@@ -47,6 +47,7 @@ async def run_lookup(
             transport="stdio",
             command=MCP_COMMAND,
             env={"LAYLA_INTEL_PROVIDER": provider, "LAYLA_INTEL_API_KEY": key},
+            allow_stdio=True,
         )
         parsed = IntelResult.model_validate(result)
         if parsed.status == "error":

@@ -2,20 +2,30 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 
 import app.services.mcp_client as mcp_client
+from app.models.user import User
 
 
-async def _register(client):
+async def _register(client, email="mcp@example.com"):
     await client.post(
         "/api/auth/register",
-        json={"email": "mcp@example.com", "password": "hunter2hunter2"},
+        json={"email": email, "password": "hunter2hunter2"},
     )
 
 
+async def _promote(db_sessionmaker, email: str) -> None:
+    async with db_sessionmaker() as s:
+        user = await s.scalar(select(User).where(User.email == email))
+        user.is_admin = True
+        await s.commit()
+
+
 @pytest.mark.asyncio
-async def test_register_and_list_mcp_server(client):
+async def test_register_and_list_mcp_server(client, db_sessionmaker):
     await _register(client)
+    await _promote(db_sessionmaker, "mcp@example.com")
     r = await client.post(
         "/api/mcp/servers",
         json={
@@ -38,11 +48,22 @@ async def test_register_and_list_mcp_server(client):
 
 
 @pytest.mark.asyncio
+async def test_stdio_forbidden_for_non_admin(client):
+    await _register(client, "mcp-user@example.com")
+    r = await client.post(
+        "/api/mcp/servers",
+        json={"name": "s", "transport": "stdio", "command": "run"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_toggle_and_delete(client):
-    await _register(client)
+    await _register(client, "mcp-http@example.com")
     srv = (
         await client.post(
-            "/api/mcp/servers", json={"name": "s", "transport": "http", "url": "http://x/mcp"}
+            "/api/mcp/servers",
+            json={"name": "s", "transport": "http", "url": "https://mcp.example/mcp"},
         )
     ).json()
     upd = (
@@ -54,8 +75,18 @@ async def test_toggle_and_delete(client):
 
 
 @pytest.mark.asyncio
-async def test_test_connection_uses_client(client, monkeypatch):
-    await _register(client)
+async def test_http_mcp_rejects_cleartext(client):
+    await _register(client, "mcp-clear@example.com")
+    r = await client.post(
+        "/api/mcp/servers", json={"name": "s", "transport": "http", "url": "http://x/mcp"}
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_test_connection_uses_client(client, db_sessionmaker, monkeypatch):
+    await _register(client, "mcp-test@example.com")
+    await _promote(db_sessionmaker, "mcp-test@example.com")
     srv = (
         await client.post(
             "/api/mcp/servers",
@@ -64,6 +95,7 @@ async def test_test_connection_uses_client(client, monkeypatch):
     ).json()
 
     async def fake_list_tools(**kw):
+        assert kw.get("allow_stdio") is True
         return [{"name": "read_file", "description": "Read a file"}]
 
     monkeypatch.setattr(mcp_client, "list_tools", fake_list_tools)
@@ -73,8 +105,9 @@ async def test_test_connection_uses_client(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_test_connection_reports_error(client, monkeypatch):
-    await _register(client)
+async def test_test_connection_reports_error(client, db_sessionmaker, monkeypatch):
+    await _register(client, "mcp-err@example.com")
+    await _promote(db_sessionmaker, "mcp-err@example.com")
     srv = (
         await client.post(
             "/api/mcp/servers", json={"name": "s", "transport": "stdio", "command": "run"}

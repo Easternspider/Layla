@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.db import get_session
 from app.models.enums import EgressRoute, ServerAuth
 from app.models.pentest import Server
@@ -116,18 +115,9 @@ async def test_route(
 ) -> dict:
     """Проверить egress-маршрут сервера (fail-closed для Tor/Proxy)."""
     s = await _owned(session, user, sid)
-    settings = get_settings()
     route = egress.effective_route(s.egress_route, None, EgressRoute.direct)
-
-    def probe(r: EgressRoute) -> bool:
-        addr = settings.tor_addr if r == EgressRoute.tor else settings.proxy_addr
-        if not addr or ":" not in addr:
-            return False
-        host, _, port = addr.rpartition(":")
-        return egress.tcp_probe(host, int(port))
-
     try:
-        decision = egress.assert_egress_available(route, probe=probe)
+        decision = egress.assert_egress_available(route, probe=egress.probe_configured)
     except egress.EgressBlocked as exc:
         return {"ok": False, "route": route.value, "reason": str(exc)}
     return {"ok": True, "route": decision.route.value, "reason": decision.reason}

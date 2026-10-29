@@ -48,7 +48,12 @@ def test_read_rejects_oversized(tmp_path, monkeypatch):
 
 def test_validate_repo_url():
     assert repo.validate_repo_url("https://github.com/a/b.git")
-    assert repo.validate_repo_url("http://example.com/x")
+    with pytest.raises(ValueError):
+        repo.validate_repo_url("http://example.com/x")
+    with pytest.raises(ValueError):
+        repo.validate_repo_url("https://localhost/x")
+    with pytest.raises(ValueError):
+        repo.validate_repo_url("https://user:pass@github.com/a/b.git")
     with pytest.raises(ValueError):
         repo.validate_repo_url("file:///etc/passwd")
     with pytest.raises(ValueError):
@@ -95,9 +100,13 @@ async def test_project_files_api_and_traversal_blocked(client, tmp_path, monkeyp
 async def test_clone_missing_git_raises_clear_error(tmp_path, monkeypatch):
     """Если git не установлен, clone() даёт понятный RuntimeError, а не 500."""
 
+    async def _public(_host):
+        return ["1.1.1.1"]
+
     async def _boom(*args, **kwargs):
         raise FileNotFoundError(2, "No such file or directory: 'git'")
 
+    monkeypatch.setattr(repo.web_research, "public_addresses", _public)
     monkeypatch.setattr(repo.asyncio, "create_subprocess_exec", _boom)
     with pytest.raises(RuntimeError, match="git не установлен"):
         await repo.clone("https://github.com/a/b.git", tmp_path / "out")
@@ -114,13 +123,23 @@ async def test_clone_disables_credential_prompt(tmp_path, monkeypatch):
         async def communicate(self):
             return b"", b""
 
+    async def _public(_host):
+        return ["1.1.1.1"]
+
     async def _fake_exec(*args, **kwargs):
         captured["env"] = kwargs.get("env", {})
+        captured["args"] = args
         return _Proc()
 
+    monkeypatch.setattr(repo.web_research, "public_addresses", _public)
     monkeypatch.setattr(repo.asyncio, "create_subprocess_exec", _fake_exec)
     await repo.clone("https://github.com/a/b.git", tmp_path / "out")
-    assert captured["env"].get("GIT_TERMINAL_PROMPT") == "0"
+    env = captured["env"]
+    assert env.get("GIT_TERMINAL_PROMPT") == "0"
+    assert "DATABASE_URL" not in env and "LAYLA_SECRET_KEY" not in env
+    keys = [env[name] for name in env if name.startswith("GIT_CONFIG_KEY_")]
+    values = [env[name] for name in env if name.startswith("GIT_CONFIG_VALUE_")]
+    assert "protocol.file.allow" in keys and "never" in values
 
 
 @pytest.mark.asyncio

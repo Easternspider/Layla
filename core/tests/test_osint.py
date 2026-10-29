@@ -202,6 +202,11 @@ async def test_mcp_env_is_encrypted_and_decrypted_only_for_execution(
     client, db_sessionmaker, monkeypatch
 ):
     await register(client)
+    from app.models.user import User
+    async with db_sessionmaker() as session:
+        user = await session.scalar(select(User).where(User.email == "osint@example.com"))
+        user.is_admin = True
+        await session.commit()
     created = (
         await client.post(
             "/api/mcp/servers",

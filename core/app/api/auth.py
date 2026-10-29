@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,18 +28,33 @@ from app.services.auth import ensure_user_bootstrapped, get_current_user
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _set_session_cookie(response: Response, user_id: str) -> None:
+def _cookie_secure(request: Request) -> bool:
+    """Secure, если стенд в prod или запрос пришёл по HTTPS (Caddy ставит X-Forwarded-Proto)."""
+    settings = get_settings()
+    if settings.is_prod:
+        return True
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    if forwarded.split(",")[0].strip().lower() == "https":
+        return True
+    return request.url.scheme == "https"
+
+
+def _set_session_cookie(response: Response, user_id: str, *, secure: bool) -> None:
     settings = get_settings()
     token = create_session_token(user_id)
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=settings.is_prod,   # HTTPS-only cookie in prod
+        secure=secure,
         samesite="lax",
         max_age=settings.jwt_ttl_minutes * 60,
         path="/",
     )
+
+
+def _clear_session_cookie(response: Response, *, secure: bool) -> None:
+    response.delete_cookie(COOKIE_NAME, path="/", secure=secure, httponly=True, samesite="lax")
 
 
 async def _clear_bootstrap(session: AsyncSession) -> None:
@@ -63,6 +78,7 @@ async def bootstrap(session: AsyncSession = Depends(get_session)) -> BootstrapOu
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(
     body: RegisterRequest,
+    request: Request,
     response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> User:
@@ -90,13 +106,14 @@ async def register(
     await ensure_user_bootstrapped(session, user)
     await audit.record(session, actor=user.id, action="user.register", target=user.email)
     await session.commit()
-    _set_session_cookie(response, user.id)
+    _set_session_cookie(response, user.id, secure=_cookie_secure(request))
     return user
 
 
 @router.post("/login", response_model=UserOut)
 async def login(
     body: LoginRequest,
+    request: Request,
     response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> User:
@@ -119,13 +136,13 @@ async def login(
         await _clear_bootstrap(session)
     await audit.record(session, actor=user.id, action="user.login", target=user.email)
     await session.commit()
-    _set_session_cookie(response, user.id)
+    _set_session_cookie(response, user.id, secure=_cookie_secure(request))
     return user
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response) -> None:
-    response.delete_cookie(COOKIE_NAME, path="/")
+async def logout(request: Request, response: Response) -> None:
+    _clear_session_cookie(response, secure=_cookie_secure(request))
 
 
 @router.post("/change-password", response_model=UserOut)

@@ -73,11 +73,12 @@ def parse_plan(text: str) -> list[dict]:
 def needs_hitl(step: dict, *, mode: str, persona_hitl: bool, dangerous: bool) -> bool:
     """Нужна ли пауза на подтверждение оператором (спец. §7.8).
 
-    * Активная команда в interactive-режиме — всегда HITL.
-    * В autonomous-режиме — без пошаговых подтверждений, включая опасные команды.
-    * В остальных режимах сохраняются обязательные подтверждения.
-    * Планы/анализ (без команды) — без HITL.
+    * Команда в interactive — пауза на шаг. В autonomous паузы нет, в том числе
+      на разрушительные команды: в пределах scope они не требуют отдельного согласования.
+    * Флаги dangerous и persona_hitl паузу не добавляют.
+    * Планы и анализ (без команды) — без паузы.
     """
+    del persona_hitl, dangerous
     if step.get("kind") != "command" or not step.get("command"):
         return False
     return mode != "autonomous"

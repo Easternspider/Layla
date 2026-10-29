@@ -16,7 +16,7 @@ from app.services import intelligence, mcp_client
 
 async def test_real_bundled_mcp_tools_and_safe_errors():
     tools = await mcp_client.list_tools(
-        transport="stdio", command=intelligence.MCP_COMMAND, url=None
+        transport="stdio", command=intelligence.MCP_COMMAND, url=None, allow_stdio=True
     )
     assert {t["name"] for t in tools} == {
         "shodan_lookup",
@@ -30,6 +30,7 @@ async def test_real_bundled_mcp_tools_and_safe_errors():
         name="urlscan_lookup",
         arguments={"target": "http://127.0.0.1/internal"},
         env={"LAYLA_INTEL_PROVIDER": "urlscan"},
+        allow_stdio=True,
     )
     assert result["error_code"] == "invalid_target"
     # A provider's secret must not be available to tools for another provider.
@@ -39,6 +40,7 @@ async def test_real_bundled_mcp_tools_and_safe_errors():
         name="shodan_lookup",
         arguments={"target": "example.com"},
         env={"LAYLA_INTEL_PROVIDER": "urlscan", "LAYLA_INTEL_API_KEY": "other-secret"},
+        allow_stdio=True,
     )
     assert result["error_code"] == "not_configured"
     assert "other-secret" not in str(result)
@@ -88,20 +90,22 @@ async def test_real_streamable_http_transport(monkeypatch):
     monkeypatch.setattr(mcp_client, "streamable_http_client", transport)
     async with server.session_manager.run():
         tools = await mcp_client.list_tools(
-            transport="http", command=None, url="http://localhost:8000/mcp"
+            transport="http", command=None, url="http://localhost:8000/mcp", trusted_url=True
         )
         assert [t["name"] for t in tools] == ["hello"]
         result = await mcp_client.call_tool(
-            transport="http", url="http://localhost:8000/mcp", name="hello", arguments={}
+            transport="http", url="http://localhost:8000/mcp", name="hello", arguments={}, trusted_url=True
         )
         assert result == {"message": "hello"}
 
 
 async def test_mcp_failure_and_deadline_are_bounded():
     with pytest.raises(RuntimeError, match="подключиться"):
-        await mcp_client.list_tools(transport="stdio", command="/no/such/secret-worker", url=None)
+        await mcp_client.list_tools(transport="stdio", command="/no/such/secret-worker", url=None, allow_stdio=True)
     # The deadline also terminates a child that never starts MCP.
     command = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(60)'"
     async with asyncio.timeout(8):
         with pytest.raises(RuntimeError):
-            await mcp_client.list_tools(transport="stdio", command=command, url=None, timeout=0.3)
+            await mcp_client.list_tools(
+                transport="stdio", command=command, url=None, timeout=0.3, allow_stdio=True
+            )

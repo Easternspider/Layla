@@ -38,6 +38,21 @@ async def _owned(session: AsyncSession, user: User, server_id: str) -> McpServer
     return srv
 
 
+def _kind(transport) -> str:
+    return transport.value if hasattr(transport, "value") else str(transport or "")
+
+
+def _guard_registration(user: User, transport, url: str | None) -> None:
+    kind = _kind(transport)
+    if kind == "stdio" and not user.is_admin:
+        raise HTTPException(status_code=403, detail="stdio MCP доступен только администратору")
+    if kind == "http":
+        try:
+            mcp_client.validate_mcp_url(url or "")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("", response_model=list[McpServerOut])
 async def list_servers(
     user: User = Depends(get_current_user),
@@ -53,6 +68,7 @@ async def create_server(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> McpServerOut:
+    _guard_registration(user, body.transport, body.url)
     srv = McpServer(
         owner_id=user.id,
         name=body.name,
@@ -78,7 +94,15 @@ async def update_server(
     session: AsyncSession = Depends(get_session),
 ) -> McpServerOut:
     srv = await _owned(session, user, server_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if _kind(srv.transport) == "stdio" and not user.is_admin and ("command" in data or "url" in data):
+        raise HTTPException(status_code=403, detail="stdio MCP доступен только администратору")
+    if "url" in data and data["url"] is not None and _kind(srv.transport) == "http":
+        try:
+            mcp_client.validate_mcp_url(data["url"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    for field, value in data.items():
         setattr(srv, field, value)
     await session.commit()
     return _to_out(srv)
@@ -105,12 +129,16 @@ async def test_server(
     srv = await _owned(session, user, server_id)
     if not srv.enabled:
         return McpTestResult(ok=False, error="MCP-сервер выключен")
+    kind = _kind(srv.transport)
+    if kind == "stdio" and not user.is_admin:
+        return McpTestResult(ok=False, error="stdio MCP доступен только администратору")
     try:
         tools = await mcp_client.list_tools(
-            transport=srv.transport.value if hasattr(srv.transport, "value") else str(srv.transport),
+            transport=kind,
             command=srv.command,
             url=srv.url,
             env=decrypt_env(srv),
+            allow_stdio=user.is_admin,
         )
         return McpTestResult(ok=True, tools=[McpToolInfo(**t) for t in tools])
     except RuntimeError as exc:

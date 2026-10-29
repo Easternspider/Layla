@@ -43,10 +43,12 @@ RESOURCE_DESCRIPTIONS = {
 
 
 class McpAgent:
-    def __init__(self, routes: dict[str, tuple[McpServer, str]], specs: list[dict], servers=None) -> None:
+    def __init__(self, routes: dict[str, tuple[McpServer, str]], specs: list[dict], servers=None,
+                 allow_stdio: bool = False) -> None:
         self.routes = routes
         self.specs = specs
         self.servers = servers or {}
+        self.allow_stdio = allow_stdio
         if self.servers:
             self.specs += [{"type": "function", "function": {
                 "name": name, "description": RESOURCE_DESCRIPTIONS[name],
@@ -54,17 +56,21 @@ class McpAgent:
             }} for name, schema in RESOURCE_SCHEMAS.items()]
 
     @classmethod
-    async def create(cls, servers: list[McpServer]) -> McpAgent | None:
+    async def create(cls, servers: list[McpServer], *, allow_stdio: bool = False) -> McpAgent | None:
         routes: dict[str, tuple[McpServer, str]] = {}
         specs: list[dict] = []
         accessible = {}
         for server in servers:
             identity = str(getattr(server, "id", "") or server.name)
+            transport = server.transport.value if hasattr(server.transport, "value") else str(server.transport)
+            if transport == "stdio" and not allow_stdio:
+                continue
             accessible[identity] = server
             try:
                 remote = await mcp_client.list_tools(
-                    transport=server.transport.value if hasattr(server.transport, "value") else str(server.transport),
+                    transport=transport,
                     command=server.command, url=server.url, env=decrypt_env(server), timeout=8,
+                    allow_stdio=allow_stdio,
                 )
             except (RuntimeError, ValueError):
                 continue
@@ -88,7 +94,7 @@ class McpAgent:
                     "description": f"MCP {server.name}: {str(tool.get('description') or original)[:2000]}",
                     "parameters": schema,
                 }})
-        return cls(routes, specs, accessible) if accessible else None
+        return cls(routes, specs, accessible, allow_stdio) if accessible else None
 
     async def call(self, name: str, arguments: dict) -> dict:
         if name in RESOURCE_SCHEMAS:
@@ -104,7 +110,8 @@ class McpAgent:
             if server is None:
                 return {"error": "MCP-сервер недоступен этому пользователю или персоне"}
             params = {"transport": server.transport.value if hasattr(server.transport, "value") else str(server.transport),
-                      "command": server.command, "url": server.url, "env": decrypt_env(server)}
+                      "command": server.command, "url": server.url, "env": decrypt_env(server),
+                      "allow_stdio": self.allow_stdio}
             if name == "mcp_list_resources":
                 return await mcp_client.list_resources(cursor=args.cursor, **params)
             if name == "mcp_resource_templates":
@@ -115,6 +122,7 @@ class McpAgent:
             name=original, arguments=arguments,
             transport=server.transport.value if hasattr(server.transport, "value") else str(server.transport),
             command=server.command, url=server.url, env=decrypt_env(server), allow_text=True,
+            allow_stdio=self.allow_stdio,
         )
 
     def label(self, name: str) -> str:

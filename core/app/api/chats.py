@@ -107,7 +107,8 @@ async def _code_mcp(session: AsyncSession, owner_id: str, persona_id: str | None
     rows = list(await session.scalars(select(McpServer).where(
         McpServer.owner_id == owner_id, McpServer.enabled.is_(True))))
     allowed = [row for row in rows if not row.personas or (persona_id and persona_id in row.personas)]
-    return await code_mcp.McpAgent.create(allowed) if allowed else None
+    owner = await session.get(User, owner_id)
+    return await code_mcp.McpAgent.create(allowed, allow_stdio=bool(owner and owner.is_admin)) if allowed else None
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 

@@ -117,7 +117,8 @@ async def perform(url: str, host: str, address: str, max_bytes: int, *, verify: 
 
 
 async def browser_exchange(method: str, url: str, body: str, content_type: str, cookie: str,
-                           allow: list[str], deny: list[str]) -> dict:
+                           allow: list[str], deny: list[str],
+                           proxy: tuple[str, int] | None = None) -> dict:
     """One Chrome-shaped request to an in-scope target. Same impersonation as public web fetch."""
     method = (method or 'GET').strip().upper()
     if method not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'}:
@@ -143,11 +144,12 @@ async def browser_exchange(method: str, url: str, body: str, content_type: str, 
     if cookie:
         headers['Cookie'] = cookie[:4000]
     options = {CurlOpt.RESOLVE: [f'{host}:443:{addresses[0]}'], CurlOpt.MAXFILESIZE_LARGE: MAX_BYTES}
+    extra = {"proxy": f"socks5://{proxy[0]}:{proxy[1]}"} if proxy else {}
     try:
         async with AsyncSession(impersonate='chrome', curl_options=options) as session:
             response = await session.request(method, url, data=body.encode() if body else None,
                                              headers=headers or None, allow_redirects=False, timeout=20,
-                                             default_headers=True)
+                                             default_headers=True, **extra)
     except Exception as exc:
         raise OSError('цель не ответила на браузерный запрос') from exc
     raw = response.content[:20000]
@@ -158,7 +160,8 @@ async def browser_exchange(method: str, url: str, body: str, content_type: str, 
             interesting[key] = str(value)[:500]
     return {'status': response.status_code, 'url': url, 'method': method, 'headers': interesting,
             'body': raw.decode('utf-8', 'replace'), 'truncated': len(response.content) > 20000,
-            'note': 'Запрос ушёл с отпечатком Chrome, как web fetch, и только на хост из scope. Это не curl.'}
+            'note': 'Запрос ушёл с отпечатком Chrome и только на хост из scope. '
+                    + ('Трафик завёрнут в выбранный Tor/Proxy.' if proxy else 'Это не curl.')}
 
 
 async def fetch(url: str, blocked: list[str] = (), *, max_bytes: int = MAX_BYTES) -> dict:

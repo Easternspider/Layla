@@ -13,6 +13,16 @@ def test_direct_always_available():
     assert d.allowed is True
 
 
+def test_tor_without_probe_is_blocked():
+    with pytest.raises(EgressBlocked):
+        egress.assert_egress_available(EgressRoute.tor)
+
+
+def test_proxy_without_probe_is_blocked():
+    with pytest.raises(EgressBlocked):
+        egress.assert_egress_available(EgressRoute.proxy)
+
+
 def test_tor_blocked_when_probe_fails():
     # Ключевое правило §7.4: сбой Tor → блокировка, НЕ откат на Direct.
     with pytest.raises(EgressBlocked):

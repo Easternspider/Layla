@@ -2,10 +2,39 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
+from cryptography.fernet import Fernet
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _host_of(value: str) -> str:
+    text = (value or "").strip()
+    if not text or text in {":80", ":443"}:
+        return ""
+    if "://" not in text:
+        text = "https://" + text
+    return (urlparse(text).hostname or "").lower().rstrip(".")
+
+
+def _local_host(host: str) -> bool:
+    return host in {"", "localhost", "127.0.0.1", "::1"}
+
+
+def _placeholder(value: str) -> bool:
+    raw = (value or "").strip().lower()
+    return (not raw) or "change_me" in raw or raw in {
+        "dev-insecure-jwt-secret", "layla-dev-only-insecure-key",
+    }
+
+
+def _is_fernet(value: str) -> bool:
+    try:
+        Fernet((value or "").encode())
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 class Settings(BaseSettings):
@@ -14,6 +43,8 @@ class Settings(BaseSettings):
     # --- General ---
     env: str = Field(default="dev", alias="LAYLA_ENV")
     public_host: str = Field(default="localhost", alias="LAYLA_PUBLIC_HOST")
+    # Адрес, который слушает Caddy. Пусто или localhost — стенд не считается публичным.
+    site_address: str = Field(default="", alias="LAYLA_SITE_ADDRESS")
     # E-mail админа, создаваемого при первой установке (если пользователей ещё нет).
     # Домен .app — валидный (в отличие от .local), почта туда не шлётся: это лишь
     # логин. Замените на свой реальный e-mail через LAYLA_ADMIN_EMAIL.
@@ -90,15 +121,27 @@ class Settings(BaseSettings):
     def is_prod(self) -> bool:
         return self.env.lower() in {"prod", "production"}
 
+    def _reachable(self) -> bool:
+        """Прод или адрес, который уже не локальный стенд."""
+        if self.is_prod:
+            return True
+        return any(not _local_host(host) for host in (_host_of(self.public_host), _host_of(self.site_address)))
+
     def validate_for_prod(self) -> list[str]:
-        """Проверки безопасности для прод-режима (спец. §7.5, §7.6)."""
+        """Секреты-примеры не должны обслуживать доступный снаружи стенд."""
+        if not self._reachable():
+            return []
         problems: list[str] = []
-        if not self.is_prod:
-            return problems
-        if not self.secret_key:
-            problems.append("LAYLA_SECRET_KEY обязателен в prod (шифрование секретов)")
-        if not self.jwt_secret or self.jwt_secret == "dev-insecure-jwt-secret":
-            problems.append("LAYLA_JWT_SECRET должен быть задан и не равен dev-значению")
+        if not _is_fernet(self.secret_key) or _placeholder(self.secret_key):
+            problems.append(
+                "LAYLA_SECRET_KEY должен быть настоящим ключом Fernet, не примером CHANGE_ME"
+            )
+        if _placeholder(self.jwt_secret) or len((self.jwt_secret or "").strip()) < 32:
+            problems.append("LAYLA_JWT_SECRET должен быть своим секретом не короче 32 символов, не примером")
+        if _placeholder(self.postgres_password) or (self.postgres_password or "").strip().lower() == "layla":
+            problems.append("POSTGRES_PASSWORD нельзя оставлять примером или значением layla")
+        if _placeholder(self.litellm_master_key):
+            problems.append("LITELLM_MASTER_KEY нельзя оставлять пустым или примером CHANGE_ME")
         return problems
 
 

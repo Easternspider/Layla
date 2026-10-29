@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from dataclasses import dataclass
 
 import asyncssh
@@ -61,6 +62,7 @@ class SSHConfig:
     auth: str            # "key" | "password"
     secret: str | None   # приватный ключ или пароль (расшифрованные)
     host_key: str | None  # закреплённый публичный ключ хоста (export_public_key) или None
+    via: tuple[str, int] | None = None  # SOCKS5 (Tor или Proxy); None — прямое соединение
 
 
 @dataclass
@@ -111,10 +113,53 @@ class _PinnedClient(asyncssh.SSHClient):
             return False
 
 
+def _socks5_socket(proxy_host: str, proxy_port: int, dest_host: str, dest_port: int) -> socket.socket:
+    """Соединение до цели через SOCKS5 без аутентификации (Tor и обычный Proxy)."""
+    sock = socket.create_connection((proxy_host, proxy_port), timeout=CONNECT_TIMEOUT)
+    try:
+        sock.settimeout(CONNECT_TIMEOUT)
+
+        def recvn(n: int) -> bytes:
+            buf = b""
+            while len(buf) < n:
+                chunk = sock.recv(n - len(buf))
+                if not chunk:
+                    raise OSError("SOCKS5 оборвал соединение")
+                buf += chunk
+            return buf
+
+        sock.sendall(b"\x05\x01\x00")
+        if recvn(2) != b"\x05\x00":
+            raise OSError("SOCKS5 не принял подключение без пароля")
+        host = dest_host.encode("idna")
+        if not host or len(host) > 255:
+            raise OSError("Имя хоста не помещается в SOCKS5")
+        sock.sendall(b"\x05\x01\x00\x03" + bytes([len(host)]) + host + dest_port.to_bytes(2, "big"))
+        head = recvn(4)
+        if head[0] != 5 or head[1] != 0:
+            raise OSError("SOCKS5 не смог подключиться к серверу")
+        if head[3] == 1:
+            recvn(6)
+        elif head[3] == 4:
+            recvn(18)
+        elif head[3] == 3:
+            recvn(recvn(1)[0] + 2)
+        else:
+            raise OSError("SOCKS5 вернул неизвестный адрес")
+        sock.settimeout(None)
+        return sock
+    except Exception:
+        sock.close()
+        raise
+
+
 async def _connect(cfg: SSHConfig):
     """Открыть соединение, не доверяя known_hosts ОС; проверку делаем сами (TOFU/pin)."""
     validator = _PinnedClient(cfg)
+    sock = None
     try:
+        if cfg.via:
+            sock = await asyncio.to_thread(_socks5_socket, cfg.via[0], cfg.via[1], cfg.host, cfg.port)
         conn = await asyncio.wait_for(
             asyncssh.connect(
                 cfg.host, port=cfg.port, username=cfg.user,
@@ -124,6 +169,7 @@ async def _connect(cfg: SSHConfig):
                 client_factory=lambda: validator,
                 agent_path=None,           # не трогаем ssh-agent оператора
                 config=None,               # игнорируем ~/.ssh/config
+                sock=sock,
             ),
             timeout=CONNECT_TIMEOUT,
         )
@@ -132,7 +178,8 @@ async def _connect(cfg: SSHConfig):
     except asyncssh.PermissionDenied as exc:
         raise SSHError("Отказано в доступе: проверьте пользователя, ключ или пароль") from exc
     except (TimeoutError, OSError, asyncssh.Error) as exc:
-        raise SSHError(f"Не удалось подключиться к {cfg.host}:{cfg.port}: {type(exc).__name__}") from exc
+        where = f" через {cfg.via[0]}:{cfg.via[1]}" if cfg.via else ""
+        raise SSHError(f"Не удалось подключиться к {cfg.host}:{cfg.port}{where}: {type(exc).__name__}") from exc
     presented = conn.get_server_host_key()
     try:
         _verify_host_key(cfg, presented)

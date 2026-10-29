@@ -53,6 +53,7 @@ async def test_mcp(
             transport="stdio",
             command=intelligence.MCP_COMMAND,
             url=None,
+            allow_stdio=True,
         )
         result = McpTestResult(ok=True, tools=[McpToolInfo(**tool) for tool in tools])
     except RuntimeError:
