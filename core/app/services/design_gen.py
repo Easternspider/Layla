@@ -203,6 +203,15 @@ def document(answer: str, thoughts: str) -> str:
     return answer_html
 
 
+def preview_text(answer: str, thoughts: str) -> str:
+    """Черновик для продолжения: текст модели как есть, код из мыслей — только если он уже длиннее."""
+    page = thought_code(thoughts)
+    answer_html = extract_html(answer) if answer else ""
+    if page and len(page) > len(answer_html):
+        return page
+    return answer
+
+
 def save_page(root: str, html: str, path: str = "index.html") -> dict | None:
     """Записать страницу из размышлений. None — текст не изменился."""
     from app.services import files

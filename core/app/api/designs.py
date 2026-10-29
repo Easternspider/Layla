@@ -208,8 +208,9 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
         base, piece = text, ""
 
         def shown() -> str:
-            # Код из размышлений попадает в черновик сразу, не дожидаясь отдельного ответа.
-            return design_gen.document(design_gen.join_continuation(base, piece), thoughts) or design_gen.join_continuation(base, piece)
+            # Код из размышлений попадает в черновик сразу, но оборванный ответ модели
+            # сохраняется как есть — иначе продолжение не сойдётся с местом обрыва.
+            return design_gen.preview_text(design_gen.join_continuation(base, piece), thoughts) or design_gen.join_continuation(base, piece)
 
         try:
             for part in range(design_gen.MAX_CONTINUATIONS + 1):
@@ -263,7 +264,7 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
                 if truncated:
                     piece = piece[: -len(project_agent.LENGTH_NOTE)]
                 text = design_gen.join_continuation(base, piece)
-                live = design_gen.document(text, thoughts) or text
+                live = design_gen.preview_text(text, thoughts) or text
                 await _push_draft(h, live)
                 if not truncated or part == design_gen.MAX_CONTINUATIONS:
                     break
@@ -276,7 +277,7 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
             # Сорвалось (ошибка, остановка): последний кусок черновика — в задачу, чтобы
             # «Продолжить» подхватило его, а не начинало заново.
             with suppress(Exception):
-                await _push_draft(h, design_gen.document(design_gen.join_continuation(base, piece), thoughts) or design_gen.join_continuation(base, piece))
+                await _push_draft(h, design_gen.preview_text(design_gen.join_continuation(base, piece), thoughts) or design_gen.join_continuation(base, piece))
             raise
         await h.reason("", flush=True)
         if truncated:
