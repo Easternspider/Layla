@@ -43,20 +43,17 @@ DESIGN_PRINCIPLES = (
     "семантичная разметка.\n"
     "- Не повторяйся: разные задачи — разные решения."
 )
-# Дизайн-чат: сразу код, без проекта целиком в размышлениях.
+# Дизайн-чат: код из размышлений сразу ложится в файл, мысли не обрываем.
 DESIGN_CHAT_NOTE = (
     DESIGN_PRINCIPLES + "\n"
-    "Пиши код сразу. Не проектируй страницу целиком в размышлениях и не составляй план всего "
-    "проекта до первой записи — это важнее общего правила про план и update_todos. "
-    "Первое действие — запись кода: write_file, если страницы ещё нет, или edit_file маленькими "
-    "фрагментами, если она уже есть. Большую страницу продолжай через append_file, секция за секцией. "
-    "Не вызывай update_todos, repo_map и поиск, пока файл не начат. Если размышляешь — одна фраза "
-    "о следующей секции, и сразу код в вызове инструмента."
+    "Работай по шагам: для правок существующей страницы — edit_file маленькими фрагментами; новую "
+    "большую страницу пиши частями (write_file, затем append_file). "
+    "Разметку можно писать прямо в размышлениях, блоком ```html: она сразу сохраняется в index.html, "
+    "отдельный ответ с тем же кодом не нужен."
 )
 
-# Короткий потолок размышлений, когда в модели бюджет не задан вручную.
-# Иначе модель сначала «продумывает проект» и только потом пишет.
-DESIGN_REASONING_BUDGET = 256
+# 0 — не обрывать размышления. Код из них пишется в файл по ходу.
+DESIGN_REASONING_BUDGET = 0
 
 # Макет — один большой ответ: стартовый лимит длины выше, чем у хода чата.
 DESIGN_MAX_OUTPUT = 16384
@@ -142,9 +139,8 @@ def build_prompt(brief: dict, stack: str) -> list[dict[str, str]]:
         "сверху вниз, скрипты — в конце <body>: так превью можно показывать по ходу генерации. "
         "Картинки — только встроенный SVG, CSS-графика или https://picsum.photos; шрифты — Google Fonts.\n"
         + DESIGN_PRINCIPLES + "\n"
-        "Сразу пиши документ. Не размышляй о проекте целиком и не составляй план до кода: "
-        "первая строка ответа — ```html, затем <head> со всеми стилями и разметка секций сверху вниз, "
-        "скрипты — в конце <body>. Весь код только в этом блоке, без пояснений до и после."
+        "Размышляй коротко. Если в мыслях появляется разметка, пиши её сразу блоком ```html: "
+        "она сохраняется в файл по ходу, копировать тот же код в ответ не нужно."
     )
     user = "Бриф дизайна:\n" + "\n".join(f"- {p}" for p in parts)
     return [
@@ -169,10 +165,57 @@ def design_caps(model_caps: dict | None, brief: dict) -> dict:
 
 
 def limit_reasoning(caps: dict) -> dict:
-    """Не давать дизайну продумывать весь проект, если бюджет размышлений не задан вручную."""
+    """В дизайне мысли не обрывать: код из них пишется в файл сразу. Явный бюджет модели сохраняется."""
     if caps.get("reasoning_budget") is None:
         caps["reasoning_budget"] = DESIGN_REASONING_BUDGET
     return caps
+
+
+_THOUGHT_FENCE = re.compile(r"```[ \t]*(?:html|htm)?[ \t]*\n(.*?)(?:```|\Z)", re.IGNORECASE | re.DOTALL)
+_THOUGHT_START = re.compile(r"<!DOCTYPE\s+html\b|<html\b|<head\b|<body\b", re.IGNORECASE)
+
+
+def thought_code(text: str) -> str:
+    """Разметка, которую модель написала внутри размышлений, даже если блок ещё не закрыт."""
+    if not text or "<" not in text:
+        return ""
+    best = ""
+    for match in _THOUGHT_FENCE.finditer(text):
+        body = match.group(1).strip()
+        if "<" in body and len(body) > len(best):
+            best = body
+    if best:
+        return best
+    start = _THOUGHT_START.search(text)
+    if not start:
+        return ""
+    chunk = text[start.start():]
+    end = re.search(r"</html\s*>", chunk, re.IGNORECASE)
+    return (chunk[: end.end()] if end else chunk).strip()
+
+
+def document(answer: str, thoughts: str) -> str:
+    """Готовая страница: что длиннее — ответ или код из размышлений."""
+    page = thought_code(thoughts)
+    answer_html = extract_html(answer) if answer else ""
+    if len(page) > len(answer_html):
+        return page
+    return answer_html
+
+
+def save_page(root: str, html: str, path: str = "index.html") -> dict | None:
+    """Записать страницу из размышлений. None — текст не изменился."""
+    from app.services import files
+
+    if not html or "<" not in html:
+        return None
+    try:
+        current = files.read_file(root, path)
+    except FileNotFoundError:
+        current = None
+    if current and current["content"] == html:
+        return None
+    return files.change_file(root, path, html, current["sha256"] if current else None)
 
 
 # Макет не влез в предельную длину ответа: просим модель продолжить с места обрыва.

@@ -204,7 +204,13 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
             await h.step(f"Генерирую макет · {model}", progress=0.1)
         draft_at = reason_at = 0.0  # когда черновик и размышления последний раз ушли в БД
         started = truncated = False
+        thoughts = ""
         base, piece = text, ""
+
+        def shown() -> str:
+            # Код из размышлений попадает в черновик сразу, не дожидаясь отдельного ответа.
+            return design_gen.document(design_gen.join_continuation(base, piece), thoughts) or design_gen.join_continuation(base, piece)
+
         try:
             for part in range(design_gen.MAX_CONTINUATIONS + 1):
                 base, piece = text, ""
@@ -218,17 +224,24 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
                         if now - draft_at >= DRAFT_INTERVAL:
                             # Черновик виден в «Дизайне» по ходу генерации: код и превью.
                             draft_at = now
-                            await _push_draft(h, design_gen.join_continuation(base, piece))
+                            await _push_draft(h, shown())
                     elif kind == "retract":
                         # Ход повторяется с начала — уже показанный кусок убираем.
                         piece = piece[: max(0, len(piece) - value)]
-                        await _push_draft(h, design_gen.join_continuation(base, piece))
+                        await _push_draft(h, shown())
                     elif kind == "reasoning":
-                        # Размышления тоже видны по ходу, а не пачками по 300 символов.
+                        thoughts += value
+                        page = design_gen.thought_code(thoughts)
+                        if page and not started:
+                            started = True
+                            await h.step("Модель пишет код", progress=0.3)
                         now = time.monotonic()
                         flush = now - reason_at >= DRAFT_INTERVAL
                         if flush:
                             reason_at = now
+                            if page:
+                                draft_at = now
+                                await _push_draft(h, shown())
                         await h.reason(value, flush=flush)
                     elif kind == "retry":
                         await h.step(f"Нет связи с моделью — повтор {value['attempt']} из {value['max']} "
@@ -250,7 +263,8 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
                 if truncated:
                     piece = piece[: -len(project_agent.LENGTH_NOTE)]
                 text = design_gen.join_continuation(base, piece)
-                await _push_draft(h, text)
+                live = design_gen.document(text, thoughts) or text
+                await _push_draft(h, live)
                 if not truncated or part == design_gen.MAX_CONTINUATIONS:
                     break
                 # Макет не влез в предельную длину ответа — модель продолжает с места обрыва.
@@ -262,12 +276,12 @@ async def _start_generation(session: AsyncSession, sessionmaker, user: User, mod
             # Сорвалось (ошибка, остановка): последний кусок черновика — в задачу, чтобы
             # «Продолжить» подхватило его, а не начинало заново.
             with suppress(Exception):
-                await _push_draft(h, design_gen.join_continuation(base, piece))
+                await _push_draft(h, design_gen.document(design_gen.join_continuation(base, piece), thoughts) or design_gen.join_continuation(base, piece))
             raise
         await h.reason("", flush=True)
         if truncated:
             await h.step("Макет упёрся в предельную длину ответа — сохраняю то, что успело сгенерироваться")
-        html = design_gen.extract_html(text)
+        html = design_gen.document(text, thoughts)
         if not html:
             raise RuntimeError("Модель не вернула разметку. Попробуйте ещё раз или другую модель.")
         files = design_gen.to_files(html)

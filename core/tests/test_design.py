@@ -16,6 +16,13 @@ def test_extract_html_plain():
     assert design_gen.extract_html("<div>x</div>") == "<div>x</div>"
 
 
+def test_thought_code_is_saved_even_unclosed():
+    thoughts = "Сначала палитра.\n```html\n<!DOCTYPE html><html><head><title>Вход</title>"
+    assert design_gen.thought_code(thoughts).startswith("<!DOCTYPE html>")
+    assert design_gen.document("ещё думаю", thoughts).startswith("<!DOCTYPE html>")
+    assert design_gen.document("```html\n<html><body>длиннее чем мысли</body></html>\n```", "```html\n<html>") == "<html><body>длиннее чем мысли</body></html>"
+
+
 def test_build_prompt_contains_brief_fields():
     msgs = design_gen.build_prompt(
         {"artifact_type": "Dashboard", "direction": "Brutalist"}, "react"

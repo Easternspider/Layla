@@ -270,7 +270,7 @@ async def test_review_mode_is_read_only(client, monkeypatch):
 
 async def test_design_prompts_carry_principles_and_short_thinking(client, monkeypatch):
     system = design_gen.build_prompt({}, "html")[0]["content"]
-    assert "Принципы дизайна" in system and "Сразу пиши документ" in system
+    assert "Принципы дизайна" in system and "Размышляй коротко" in system
     await _setup(client)
     calls: list = []
     _script(monkeypatch, [[("content", "ok")]], calls)

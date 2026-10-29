@@ -1041,6 +1041,7 @@ async def run_chat(
         last_persist = 0.0
         checkpointed = False  # есть контрольная точка — ход можно откатить
         todos: list[dict] = []  # план агента (update_todos) — чеклист в сообщении
+        thought_page = ""
 
         async def persist(change: dict | None = None) -> None:
             nonlocal last_persist
@@ -1163,6 +1164,24 @@ async def run_chat(
                     elif "reasoning" in event:
                         reasoning.append(event["reasoning"])
                         await h.reason(event["reasoning"])
+                        if domain == "design" and not any(
+                            t.get("path") == "index.html" and t.get("name") in ("write_file", "append_file", "edit_file")
+                            for t in tools.values()
+                        ):
+                            page = design_gen.thought_code("".join(reasoning))
+                            if page and len(page) >= len(thought_page) + 80:
+                                try:
+                                    change = await run_in_threadpool(design_gen.save_page, root, page)
+                                except (OSError, ValueError):
+                                    change = None
+                                if change:
+                                    thought_page = page
+                                    tools["thought-html"] = {
+                                        "id": "thought-html", "name": "write_file", "path": "index.html",
+                                        "status": "running", "change": change,
+                                    }
+                                    sandbox.preview_touch(owner_id, project_id)
+                                    await persist(change)
                     elif "tool" in event:
                         tool = event["tool"]
                         previous = tools.get(tool["id"])
@@ -1196,6 +1215,10 @@ async def run_chat(
             raise
         finally:
             for tool_id, tool in list(tools.items()):
+                if tool_id == "thought-html" and tool.get("change"):
+                    # Файл из размышлений уже записан — это не оборванный вызов.
+                    tools[tool_id] = {**tool, "status": "done"}
+                    continue
                 if tool["status"] in ("running", "pending"):
                     # change у pending — это лишь превью, оно не было применено.
                     cleaned = {k: v for k, v in tool.items() if k != "change"}
