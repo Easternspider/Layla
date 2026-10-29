@@ -70,13 +70,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             <option value="settings">{t("nav.settings")}</option>
           </select>
           <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-3">
-            <button onClick={() => setPalette(true)} className="hidden items-center gap-2 rounded-full bg-[#1c1c1e] px-3 py-1.5 text-[13px] text-neutral-400 hover:text-white lg:inline-flex" aria-label="Поиск по Layla">Поиск<span className="text-[11px] text-neutral-500">Ctrl K</span></button>
+            <button onClick={() => setPalette(true)} className="hidden items-center gap-2 rounded-full bg-[#1c1c1e] px-3 py-1.5 text-[13px] text-neutral-400 hover:text-white lg:inline-flex" aria-label="Поиск по Layla">Поиск<span className="kbd">Ctrl K</span></button>
             <ActivityPanel /><Link href="/settings/general" className="icon-button hidden sm:inline-flex" aria-label={t("nav.settings")} aria-current={pathname.startsWith("/settings") ? "page" : undefined}><Settings2 className="h-[18px] w-[18px]" /></Link>
             <details ref={accountMenu} className="relative">
               <summary aria-label="Меню аккаунта" className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-full p-1 text-neutral-400 [&::-webkit-details-marker]:hidden">
                 <span className="grid h-8 w-8 place-items-center rounded-full border border-accent-400/20 bg-accent-500/15 text-sm font-semibold text-accent-200">{(user?.display_name || user?.email || "L").slice(0, 1).toUpperCase()}</span><ChevronDown className="hidden h-3.5 w-3.5 sm:block" />
               </summary>
-              <div className="pane-enter absolute right-0 top-full z-50 mt-3 w-64 rounded-xl border border-ink-600 bg-ink-800 p-2 shadow-floating">
+              <div className="menu-in absolute right-0 top-full z-50 mt-3 w-64 rounded-xl border border-ink-600 bg-ink-800 p-2 shadow-floating">
                 <div className="truncate border-b border-ink-600/60 px-3 py-3 text-xs text-neutral-400">{user?.email}</div>
                 <Link href="/settings/general" className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm hover:bg-ink-700"><Settings2 className="h-4 w-4" />{t("nav.settings")}</Link>
                 <button onClick={() => logout()} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-neutral-400 hover:bg-ink-700"><LogOut className="h-4 w-4" />{t("nav.signout")}</button>

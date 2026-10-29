@@ -79,7 +79,7 @@ export function CommandPalette({ open, close }: { open: boolean; close: () => vo
   if (!open) return null;
   return (
     <div role="dialog" aria-modal="true" aria-label="Поиск по Layla" className="fixed inset-0 z-[80] grid place-items-start bg-black/60 p-4 pt-[12vh]" onClick={close}>
-      <div onClick={e => e.stopPropagation()} className="w-full max-w-xl overflow-hidden rounded-[20px] bg-[#1c1c1e] shadow-floating">
+      <div onClick={e => e.stopPropagation()} className="palette-in w-full max-w-xl overflow-hidden rounded-[20px] bg-[#1c1c1e] shadow-floating">
         <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Домен, название или текст чата" aria-label="Команда" className="w-full border-0 border-b border-white/10 bg-transparent px-4 py-3.5 text-base outline-none" />
         <div className="max-h-80 overflow-y-auto p-1.5">
           {foundChats.isFetching && <p className="px-3 py-1 text-[11px] text-neutral-500">Ищем в переписке…</p>}

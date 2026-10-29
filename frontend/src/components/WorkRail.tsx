@@ -147,7 +147,7 @@ export function WorkRail({
         <Search className="h-3 w-3 shrink-0" />
         <input value={query} onChange={e => onQuery(e.target.value)} aria-label={`Поиск: ${title}`} placeholder="Поиск" className="w-full bg-transparent text-xs text-neutral-200 outline-none" />
       </label>
-      <div className="flex-1 overflow-y-auto py-1 text-xs">
+      <div className="rail-list flex-1 overflow-y-auto py-1 text-xs">
         {!rows.length && <p className="px-3 py-4 text-neutral-600">{empty || "Список пуст."}</p>}
         {!!rows.length && !shown.length && <p className="px-3 py-4 text-neutral-600">Ничего не найдено.</p>}
         {FOLDERS.map(([name, label]) => {
@@ -161,14 +161,14 @@ export function WorkRail({
               {!folders[name] && group.map(row => {
                 const meta = [row.subtitle, ago(row.updatedAt)].filter(Boolean).join(" · ");
                 return (
-                  <div key={row.id} className={`group mx-1 flex items-center gap-1 rounded-xl px-2 py-1.5 ${active === row.id ? "bg-[#0A84FF] text-white" : "text-neutral-300 hover:bg-white/[0.06]"}`}>
+                  <div key={row.id} className={`row-in group mx-1 flex items-center gap-1 rounded-xl px-2 py-1.5 ${active === row.id ? "bg-[#0A84FF] text-white" : "text-neutral-300 hover:bg-white/[0.06]"}`}>
                     {editing === row.id ? (
                       <form className="flex min-w-0 flex-1 gap-1" onSubmit={event => { event.preventDefault(); if (draft.trim()) { onRename?.(row.id, draft.trim()); setEditing(null); } }}>
                         <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} aria-label="Новое название" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setEditing(null); } }} className="min-w-0 flex-1 border border-white/15 bg-black px-1 py-0.5 text-xs text-white" />
                       </form>
                     ) : (
                       <button onClick={() => onOpen(row.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={row.title}>
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${row.alert ? "bg-[#FF453A]" : row.working ? "animate-pulse bg-[#30D158]" : active === row.id ? "bg-white" : "bg-neutral-400"}`} title={row.working ? "агент работает" : "простаивает"} />
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${row.alert ? "bg-[#FF453A]" : row.working ? "status-sonar bg-[#30D158]" : active === row.id ? "bg-white" : "bg-neutral-400"}`} title={row.working ? "агент работает" : "простаивает"} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] leading-5">{row.title}</span>
                           {meta && <span className={`block truncate text-xs leading-4 ${active === row.id ? "text-white/90" : "text-neutral-300"}`}>{meta}</span>}

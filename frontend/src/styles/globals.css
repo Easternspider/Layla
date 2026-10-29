@@ -368,3 +368,184 @@ dialog::backdrop { background: rgb(0 0 0 / .55); backdrop-filter: blur(16px); }
   background: var(--surface) !important;
 }
 .chat-composer textarea { background: transparent !important; outline: none !important; }
+
+/* Detail and motion on top of the flat iOS surfaces. Reduced motion still kills this. */
+.app-shell[data-domain="code"] { --domain: #0A84FF; --domain-rgb: 10 132 255; }
+.app-shell[data-domain="pentest"] { --domain: #FF375F; --domain-rgb: 255 55 95; }
+.app-shell[data-domain="osint"] { --domain: #30D158; --domain-rgb: 48 209 88; }
+.app-shell[data-domain="design"] { --domain: #BF5AF2; --domain-rgb: 191 90 242; }
+.app-shell[data-domain="agent"] { --domain: #FF9F0A; --domain-rgb: 255 159 10; }
+.app-shell[data-domain="settings"], .login-shell { --domain: #0A84FF; --domain-rgb: 10 132 255; }
+
+.app-topbar::after {
+  content: "";
+  position: absolute;
+  left: 18px; right: 18px; bottom: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(var(--domain-rgb) / .15), var(--domain), rgb(var(--domain-rgb) / .15), transparent);
+  background-size: 220% 100%;
+  animation: hairline 7s ease-in-out infinite;
+  opacity: .85;
+}
+.brand-mark {
+  position: relative;
+  overflow: hidden;
+  animation: brand-glow 3.4s ease-in-out infinite;
+}
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 32%, rgb(255 255 255 / .55) 50%, transparent 68%);
+  transform: translateX(-130%);
+  animation: sheen 5.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.nav-pill { position: relative; border-radius: 999px !important; }
+.nav-pill[aria-current="page"] {
+  color: #fff !important;
+  background: color-mix(in srgb, var(--domain) 22%, #2c2c2e) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .08) !important;
+}
+.nav-pill[aria-current="page"] svg { color: var(--domain) !important; animation: icon-breathe 2.8s ease-in-out infinite; }
+.nav-pill[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 14px; right: 14px; bottom: 4px;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--domain);
+  box-shadow: 0 0 8px var(--domain);
+  animation: nav-glow 2.4s ease-in-out infinite;
+}
+.kbd {
+  border-radius: 6px;
+  background: #2c2c2e;
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / .45), inset 0 1px 0 rgb(255 255 255 / .12);
+  padding: 1px 6px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: #d1d1d6;
+}
+.primary-button, .send-button {
+  background: linear-gradient(180deg, rgb(255 255 255 / .22), rgb(255 255 255 / 0) 46%), var(--accent) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), 0 8px 20px -8px rgb(var(--domain-rgb) / .9) !important;
+}
+.secondary-button { box-shadow: inset 0 1px 0 rgb(255 255 255 / .1) !important; }
+.icon-button:not(:disabled):active { transform: scale(.92); }
+.ios-panel,
+.app-shell aside.rounded-2xl,
+.chat-composer,
+[role="dialog"] > div,
+dialog,
+.login-form {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 16px 40px -24px rgb(0 0 0 / .9) !important;
+}
+.route-view { animation: route-in 460ms var(--ease-surface) both; }
+.chat-message { animation: rise 380ms var(--ease-surface) both; }
+.rail-list .row-in { animation: rise 420ms var(--ease-surface) both; }
+.rail-list .row-in:nth-child(2) { animation-delay: 30ms; }
+.rail-list .row-in:nth-child(3) { animation-delay: 60ms; }
+.rail-list .row-in:nth-child(4) { animation-delay: 90ms; }
+.rail-list .row-in:nth-child(5) { animation-delay: 120ms; }
+.rail-list .row-in:nth-child(n+6) { animation-delay: 150ms; }
+.palette-in { animation: pop-in 280ms var(--ease-surface) both; }
+.toast-in { animation: toast-in 380ms var(--ease-surface) both; }
+.menu-in { animation: pop-in 240ms var(--ease-surface) both; }
+.domain-chips > span { animation: rise 520ms var(--ease-surface) both; }
+.domain-chips > span:nth-child(2) { animation-delay: 70ms; }
+.domain-chips > span:nth-child(3) { animation-delay: 140ms; }
+.domain-chips > span:nth-child(4) { animation-delay: 210ms; }
+.domain-chips > span:nth-child(5) { animation-delay: 280ms; }
+.empty-orb { position: relative; overflow: visible; }
+.empty-orb::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 22px;
+  border: 1px dashed rgb(var(--domain-rgb) / .55);
+  animation: orbit-spin 14s linear infinite;
+  pointer-events: none;
+}
+.empty-orb::after {
+  content: "";
+  position: absolute;
+  top: -4px; right: 10px;
+  width: 6px; height: 6px;
+  border-radius: 99px;
+  background: #30D158;
+  box-shadow: 0 0 10px #30D158;
+  animation: icon-breathe 2.2s ease-in-out infinite;
+}
+.status-sonar { position: relative; }
+.status-sonar::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 99px;
+  border: 1px solid #30D158;
+  animation: sonar 1.8s ease-out infinite;
+}
+summary[data-live="true"] {
+  box-shadow: inset 0 0 0 1px rgb(48 209 88 / .4), 0 0 18px -8px rgb(48 209 88 / .85);
+}
+summary[data-live="true"] [aria-live] { color: #30D158; }
+.job-live {
+  position: relative;
+  overflow: hidden;
+  margin-left: 16px; margin-right: 16px;
+  border-radius: 12px;
+  background: #1c1c1e;
+  padding: 8px 10px 8px 14px;
+}
+.job-live::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: linear-gradient(#30D158, var(--domain));
+}
+.job-live::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, rgb(var(--domain-rgb) / .22), transparent);
+  animation: sweep 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+.chat-composer[data-live="true"] {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 0 0 1px rgb(48 209 88 / .45), 0 0 28px -10px rgb(48 209 88 / .65) !important;
+}
+.tool-live { position: relative; }
+.tool-live::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(#30D158, var(--domain));
+  animation: bar-pulse 1.2s ease-in-out infinite;
+}
+.detail-card { transition: transform var(--motion-duration) var(--ease-surface), box-shadow var(--motion-duration); }
+@media (hover: hover) and (pointer: fine) {
+  .detail-card:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -18px rgb(0 0 0 / .85) !important; }
+}
+@keyframes route-in { from { opacity: 0; transform: translateY(10px) scale(.995); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes sheen { 0%, 62% { transform: translateX(-130%); } 100% { transform: translateX(130%); } }
+@keyframes hairline { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@keyframes brand-glow {
+  0%, 100% { box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), 0 6px 16px -10px var(--domain); }
+  50% { box-shadow: inset 0 1px 0 rgb(255 255 255 / .5), 0 10px 24px -8px var(--domain); }
+}
+@keyframes icon-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes nav-glow { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@keyframes orbit-spin { to { transform: rotate(1turn); } }
+@keyframes sonar { from { transform: scale(.55); opacity: .75; } to { transform: scale(1.9); opacity: 0; } }
+@keyframes sweep { from { left: -40%; } to { left: 110%; } }
+@keyframes bar-pulse { 50% { opacity: .25; } }
+

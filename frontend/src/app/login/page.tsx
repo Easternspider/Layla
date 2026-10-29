@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/store/auth";
 import { HttpKeyBanner } from "@/components/HttpKeyBanner";
+import { useAppearance } from "@/store/appearance";
 import { useLocale } from "@/store/locale";
 import { api, type Bootstrap } from "@/lib/api";
 import { AuroraBackdrop } from "@/components/AuroraBackdrop";
@@ -13,12 +14,14 @@ export default function LoginPage() {
   const router = useRouter();
   const { user, loaded, fetchMe, login } = useAuth();
   const t = useLocale((st) => st.t);
+  const applyAppearance = useAppearance((st) => st.apply);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [boot, setBoot] = useState<Bootstrap | null>(null);
 
+  useEffect(() => { applyAppearance(); }, [applyAppearance]);
   useEffect(() => {
     if (!loaded) fetchMe();
   }, [loaded, fetchMe]);
@@ -56,7 +59,7 @@ export default function LoginPage() {
     <div className="login-shell">
       <AuroraBackdrop />
       <div className="login-layout">
-      <div className="login-intro"><div className="mb-10 flex items-center gap-3"><span className="brand-mark">L</span><span className="text-2xl font-semibold tracking-tight">Layla</span></div><h2>Ваши идеи.<br /><span className="text-accent-200">Новые возможности.</span></h2><p className="mt-6 max-w-md text-base leading-relaxed text-neutral-400">Одно пространство для кода, исследований и дизайна. Дайте задачу — Layla поможет воплотить её.</p><div className="mt-8 flex flex-wrap gap-2">{DOMAINS.map(d => <span key={d.slug} className="inline-flex items-center gap-2 rounded-full border border-ink-600/60 bg-ink-800/40 px-3 py-2 text-xs text-neutral-300"><d.icon className="h-3.5 w-3.5 text-accent-300" />{t(`domain.${d.slug}`)}</span>)}</div></div>
+      <div className="login-intro"><div className="mb-10 flex items-center gap-3"><span className="brand-mark">L</span><span className="text-2xl font-semibold tracking-tight">Layla</span></div><h2>Ваши идеи.<br /><span className="text-accent-200">Новые возможности.</span></h2><p className="mt-6 max-w-md text-base leading-relaxed text-neutral-400">Одно пространство для кода, исследований и дизайна. Дайте задачу — Layla поможет воплотить её.</p><div className="domain-chips mt-8 flex flex-wrap gap-2">{DOMAINS.map(d => <span key={d.slug} className="inline-flex items-center gap-2 rounded-full border border-ink-600/60 bg-ink-800/40 px-3 py-2 text-xs text-neutral-300"><d.icon className="h-3.5 w-3.5 text-accent-300" />{t(`domain.${d.slug}`)}</span>)}</div></div>
       <div className="login-card">
         <div className="mb-7 flex items-center justify-center gap-3 min-[900px]:hidden"><span className="brand-mark">L</span><span className="text-2xl font-semibold tracking-tight">Layla</span></div>
 
