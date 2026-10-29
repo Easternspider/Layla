@@ -1083,6 +1083,8 @@ async def run_chat(
             from app.services.pentest_policy import PENTEST_CHAT_NOTE
             from app.services import osint_bridge
             extra = design_gen.DESIGN_CHAT_NOTE if domain == "design" else PENTEST_CHAT_NOTE if domain == "pentest" else ""
+            if domain == "design":
+                design_gen.limit_reasoning(caps)
             if domain == "osint":
                 async with maker() as osint_session:
                     extra = osint_bridge.render(await osint_bridge.recent(osint_session, owner_id))

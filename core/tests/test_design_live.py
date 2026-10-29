@@ -226,4 +226,6 @@ def test_design_caps_respect_known_limit():
     assert design_gen.design_caps({"max_output": 4096, "max_output_cap": 8000}, {})["max_output"] == 8000
     assert design_gen.design_caps({"max_output": 40000}, {})["max_output"] == 40000
     manual = {"max_output": 2048, "max_output_cap": 2048, "max_output_manual": True}
-    assert design_gen.design_caps(manual, {"creativity": "safe"}) == {**manual, "temperature": 0.35}
+    assert design_gen.design_caps(manual, {"creativity": "safe"}) == {
+        **manual, "temperature": 0.35, "reasoning_budget": design_gen.DESIGN_REASONING_BUDGET}
+    assert design_gen.design_caps({"reasoning_budget": 0}, {})["reasoning_budget"] == 0
