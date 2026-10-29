@@ -136,7 +136,11 @@ export function WorkRail({
   return (
     <aside className="m-2 flex w-64 shrink-0 flex-col rounded-2xl bg-[#1c1c1e]">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{title}</span>
+        <span className="rail-title">
+          <span className="rail-tick" aria-hidden="true" />
+          {title}
+          <span className="rail-count">{shown.length}</span>
+        </span>
         <span className="ml-auto flex items-center gap-1">
           {onCreate && <button onClick={onCreate} className="grid h-6 w-6 place-items-center border border-white/10 text-neutral-400 hover:text-white" aria-label="Создать"><Plus className="h-3.5 w-3.5" /></button>}
           <button onClick={() => setOpen(false)} className="grid h-6 w-6 place-items-center text-neutral-500 hover:text-white" aria-label="Свернуть список"><PanelLeft className="h-3.5 w-3.5" /></button>
@@ -186,7 +190,7 @@ export function WorkRail({
           );
         })}
       </div>
-      <p className="border-t border-white/10 px-3 py-1 text-[10px] text-neutral-600">j/k список, n новый, Esc свернуть</p>
+      <p className="rail-foot"><span className="kbd">J</span><span className="kbd">K</span> список <span className="kbd">N</span> новый <span className="kbd">Esc</span> свернуть</p>
     </aside>
   );
 }

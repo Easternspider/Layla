@@ -58,10 +58,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <AuroraBackdrop />
         <header className="app-topbar">
           <Link href="/code" className="flex shrink-0 items-center gap-2.5 rounded-xl" aria-label="Layla — главная">
-            <span className="brand-mark">L</span><span className="text-xl font-semibold tracking-tight">Layla</span>
+            <span className="brand-mark">L</span>
+            <span className="flex flex-col leading-none">
+              <span className="text-xl font-semibold tracking-tight">Layla</span>
+              <span className="brand-kicker">{domain ? t(`domain.${domain.slug}`) : t("nav.settings")}</span>
+            </span>
           </Link>
           <nav aria-label="Разделы Layla" className="app-navigation hidden items-center gap-1 md:flex">
-            {DOMAINS.map((d) => <Link key={d.slug} href={`/${d.slug}`} className="nav-pill" data-domain={d.slug} aria-current={domain?.slug === d.slug ? "page" : undefined}>
+            {DOMAINS.map((d, index) => <Link key={d.slug} href={`/${d.slug}`} className="nav-pill" data-domain={d.slug} aria-current={domain?.slug === d.slug ? "page" : undefined}>
+              <span className="nav-index">{String(index + 1).padStart(2, "0")}</span>
               <d.icon className="h-4 w-4" />{t(`domain.${d.slug}`)}
             </Link>)}
           </nav>

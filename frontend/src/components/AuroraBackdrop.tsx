@@ -73,6 +73,18 @@ export function AuroraBackdrop() {
         ctx.fill();
       }
       ctx.globalCompositeOperation = "source-over";
+      const [gridRed, gridGreen, gridBlue] = palette[0];
+      ctx.strokeStyle = `rgba(${gridRed}, ${gridGreen}, ${gridBlue}, 0.055)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= width; x += 88) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+      for (let y = 0; y <= height; y += 88) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+      ctx.stroke();
+      const vignette = ctx.createRadialGradient(width / 2, height * 0.42, Math.min(width, height) * 0.2, width / 2, height / 2, Math.max(width, height) * 0.75);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.58)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, width, height);
       if (!reduced()) raf = requestAnimationFrame(now => draw(now / 1000));
     };
     draw(reduced() ? 1.2 : performance.now() / 1000);

@@ -91,6 +91,11 @@ export function CommandPalette({ open, close }: { open: boolean; close: () => vo
             </button>
           ))}
         </div>
+        <div className="palette-foot">
+          <span><span className="kbd">↑</span><span className="kbd">↓</span> выбор</span>
+          <span><span className="kbd">Enter</span> открыть</span>
+          <span className="ml-auto"><span className="kbd">Esc</span> закрыть</span>
+        </div>
       </div>
     </div>
   );
