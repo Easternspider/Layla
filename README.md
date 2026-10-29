@@ -37,7 +37,7 @@ Remaining M0–M2 spec gaps are tracked explicitly in [the roadmap](docs/ROADMAP
 
 **Included now**
 - Monorepo layout: `frontend/` · `core/` · `android/` · `deploy/`.
-- **Android** (`android/`, `tech.layla.app`) — the same accounts as the web. Login stores the `layla_session` cookie and talks to `/api`. Code, Pentest, OSINT, Design, Agent and every settings section are in the app. CI assembles `app-debug.apk` and uploads the `layla-android` artifact. On a phone, type the Layla base URL; the emulator reaches the host at `http://10.0.2.2:8080`.
+- **Android** (`android/`, `tech.layla.app`) — the same accounts as the web, and the same black UI: brand mark, domain cards, chat bubbles. Login stores the `layla_session` cookie and talks to `/api`. Code, Pentest, OSINT, Design, Agent and every settings section are in the app. The launcher icon is the site mark. CI assembles `app-debug.apk` and uploads the `layla-android` artifact. On a phone, type the Layla base URL; the emulator reaches the host at `http://10.0.2.2:8080`.
 - Docker Compose dev stack: frontend, core, LiteLLM, Postgres (+pgvector),
   Redis, Caddy.
 - **Backend (`core`)** — FastAPI, async SQLAlchemy 2, Pydantic v2:

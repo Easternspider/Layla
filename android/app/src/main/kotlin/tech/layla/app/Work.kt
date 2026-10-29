@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -68,9 +68,8 @@ internal fun WorkScreen(api: LaylaApi, route: Record, back: () -> Unit) {
         }.onFailure { error = it.message }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = back) { Text("Назад") }
-        Text(route.title, color = Color.White, style = MaterialTheme.typography.titleLarge)
-        error?.let { Text(it, color = Color(0xFFFF8A80)) }
+        BackBar(route.title, back)
+        error?.let { Text(it, color = Danger) }
         when (route.kind) {
             "project" -> {
                 Field("Путь файла", a) { a = it }
@@ -229,7 +228,7 @@ internal fun WorkScreen(api: LaylaApi, route: Record, back: () -> Unit) {
             TextButton(onClick = { go { api.approveStep(b) } }) { Text("Одобрить шаг (id в deny)") }
             TextButton(onClick = { go { api.denyStep(b) } }) { Text("Отклонить шаг") }
         }
-        Text(body, color = Color(0xFFD0D0D0))
+        Panel { Text(body, color = Soft, fontSize = 13.sp, lineHeight = 18.sp) }
     }
 }
 
