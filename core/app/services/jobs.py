@@ -197,6 +197,7 @@ async def _heartbeat(maker, job_id: str) -> None:
 
 async def _finish(maker, job_id: str, status: str, error: str | None = None) -> None:
     summary_run = None
+    summary_eid = None
     # Separate session: a failed worker transaction must not swallow its failure state.
     async with maker() as session:
         job = await session.get(Job, job_id)
@@ -216,6 +217,8 @@ async def _finish(maker, job_id: str, status: str, error: str | None = None) -> 
                     AgentStep.status == "awaiting_approval").values(status="denied"))
                 await session.execute(update(AgentStep).where(AgentStep.worker_id == worker.id,
                     AgentStep.status == "running").values(status="failed", output="Исполнение прервано. Состояние удалённого процесса нужно проверить на attackbox."))
+        if job.kind == "pentest.worker_summary":
+            summary_eid = (job.result or {}).get("engagement_id")
         if status == "done":
             job.progress = 1.0
         message_id = (job.result or {}).get("message_id")
@@ -239,6 +242,12 @@ async def _finish(maker, job_id: str, status: str, error: str | None = None) -> 
             await schedule_summary(maker, summary_run)
         except Exception:
             logger.exception("Не удалось собрать итоги воркеров %s", summary_run)
+    if isinstance(summary_eid, str) and not _shutting_down:
+        try:
+            from app.services.pentest_workbench import dispatch
+            await dispatch(maker, summary_eid)
+        except Exception:
+            logger.exception("Не удалось продолжить очередь после итогов %s", job_id)
 
 
 async def _run(sessionmaker, job_id: str, worker) -> None:
