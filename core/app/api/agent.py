@@ -7,9 +7,10 @@ scope/venue/egress-гейт и HITL-подтверждение оператор�
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.db import get_session, get_sessionmaker
 from app.models.agent import AgentConfig, AgentRun, AgentStep, AgentWorker
@@ -33,7 +34,7 @@ from app.schemas.agent import (
 )
 from app.schemas.job import JobOut
 from app.security import crypto
-from app.services import audit, egress, jobs, orchestrator, provider_client, ssh_exec, venue_executor
+from app.services import audit, egress, files, jobs, orchestrator, provider_client, ssh_exec, uploads, venue_executor
 from app.services.auth import get_current_user
 from app.services.egress import EgressBlocked
 from app.services.venue_gate import ActionBlocked
@@ -687,6 +688,82 @@ async def worker_archive(wid: str, user: User = Depends(get_current_user), sessi
         headers={'Content-Disposition': f'attachment; filename="worker-{wid}.zip"'})
 
 
+async def _read_upload(request: Request) -> bytes:
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > files.MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Файл превышает допустимый размер (50 МБ)")
+        data.extend(chunk)
+    return bytes(data)
+
+
+@router.put("/engagements/{eid}/inbox")
+async def upload_engagement_file(eid: str, request: Request, name: str = Query(..., min_length=1, max_length=300),
+                                 user: User = Depends(get_current_user),
+                                 session: AsyncSession = Depends(get_session)) -> dict:
+    """Файл любого формата для пентест-агента. На attackbox он копируется при отправке сообщения."""
+    await _engagement(session, user, eid)
+    from app.config import get_settings
+    root = uploads.pending_dir(get_settings().projects_dir, user.id, eid)
+    await run_in_threadpool(lambda: root.mkdir(parents=True, exist_ok=True, mode=0o700))
+    payload = await _read_upload(request)
+    try:
+        item = await run_in_threadpool(uploads.save, str(root), name, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await audit.record(session, actor=user.id, action="pentest.file.upload", target=eid,
+                       meta={"path": item["path"], "size": item["size"]})
+    await session.commit()
+    return item
+
+
+async def _attach_pentest_files(session: AsyncSession, user: User, eid: str, worker: AgentWorker,
+                                names: list[str]) -> str:
+    """Скопировать вложения в папку воркера и, если выбран attackbox, на него."""
+    from app.config import get_settings
+    from app.services import pentest_workers
+    directory = uploads.pending_dir(get_settings().projects_dir, user.id, eid)
+    try:
+        items = await run_in_threadpool(uploads.take, str(directory), names)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail="Вложение не найдено") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    local = pentest_workers.root(worker)
+    await run_in_threadpool(lambda: local.mkdir(parents=True, exist_ok=True, mode=0o700))
+    for item, data in items:
+        await run_in_threadpool(files.change_file, str(local), item["path"], data, None)
+    staged, reason = False, "attackbox не выбран"
+    vn = await session.scalar(select(Venue).where(Venue.engagement_id == eid))
+    server = None
+    if vn and vn.mode == VenueMode.attack_box and vn.attack_box_id:
+        server = await session.get(Server, vn.attack_box_id)
+        if server is None or server.owner_id != user.id:
+            server, reason = None, "attackbox не найден"
+    if server is not None:
+        route = egress.effective_route(vn.egress_route or EgressRoute.inherit, server.egress_route)
+        cfg = _ssh_config(server)
+        cfg.via = egress.proxy_endpoint(route)
+        try:
+            host_key = await ssh_exec.put_files(
+                cfg, pentest_workers.remote_directory(worker), [(item["name"], data) for item, data in items])
+            if host_key and not server.host_key:
+                server.host_key = host_key
+            staged, reason = True, ""
+        except (ssh_exec.SSHError, OSError) as exc:
+            reason = str(exc)
+
+    def _drop() -> None:
+        for item, _data in items:
+            try:
+                files.change_file(str(directory), item["path"], None, item["sha256"])
+            except (OSError, ValueError):
+                pass
+
+    await run_in_threadpool(_drop)
+    return uploads.box_note([item for item, _data in items], staged=staged, reason=reason)
+
+
 @router.post('/engagements/{eid}/agent/chat', response_model=AgentRunOut, status_code=202)
 async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_current_user),
                      session: AsyncSession = Depends(get_session), maker=Depends(get_sessionmaker)):
@@ -729,6 +806,18 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
         session.add(run)
         await session.flush()
         leader = (await pentest_workers.reserve(session, run, [{'task': body.content, 'role': 'lead'}], lead=True))[0]
+    if body.files:
+        appendix = await _attach_pentest_files(session, user, eid, leader, body.files)
+        room = 20000 - len(appendix) - 2
+        text = f"{body.content[:max(room, 0)]}\n\n{appendix}"[:20000]
+        if body.run_id:
+            messages = list(leader.messages or [])
+            if messages and messages[-1].get("kind") == "chat":
+                messages[-1] = {**messages[-1], "content": text}
+                leader.messages = messages
+        else:
+            run.task = text[:20000]
+            leader.task = run.task
     run.mode = {'auto': 'autonomous', 'confirm': 'interactive', 'plan': 'plan'}[body.mode]
     run.status = AgentRunStatus.running
     await audit.record(session, actor=user.id, action='agent.chat.message', target=run.id,

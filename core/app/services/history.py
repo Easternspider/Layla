@@ -79,6 +79,10 @@ def entry(message: Message) -> dict | None:
         marks = {"done": "✓", "in_progress": "→", "pending": "☐"}
         listed = "; ".join(f"{marks.get(t.get('status'), '☐')} {t.get('content')}" for t in todos)
         content += f"\n[Task list at the end of this turn: {listed}]"
+    attached = meta.get("files") if message.role == "user" else None
+    if attached:
+        from app.services.uploads import chat_note
+        content += "\n\n" + chat_note(attached)
     if not content:
         return None
     # Размышления прошлых ответов модели не отправляются: это черновик мысли, часто с

@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from app.api.git import credential as git_credential
-from app.api.projects import _default_workspace, _owned_project, _project_root
+from app.api.projects import _default_workspace, _owned_project, _project_root, file_errors
 from app.config import get_settings
 from app.db import get_session, get_sessionmaker
 from app.models.chat import Chat, Checkpoint, Message
@@ -73,6 +73,7 @@ from app.services import (
     provider_client,
     sandbox,
     trash,
+    uploads,
 )
 from app.services.auth import get_current_user
 
@@ -119,6 +120,51 @@ async def _owned_chat(session: AsyncSession, user: User, chat_id: str) -> Chat:
     if chat is None or chat.owner_id != user.id or chat.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден")
     return chat
+
+
+async def _ensure_chat_project(session: AsyncSession, user: User, chat: Chat) -> str:
+    """Каталог чата: у кода — проект, у остальных доменов создаётся при первом вложении."""
+    if chat.project_id:
+        return _project_root(await _owned_project(session, user, chat.project_id))
+    workspace = await _default_workspace(session, user)
+    if workspace is None:
+        raise HTTPException(status_code=400, detail="Нет рабочего пространства")
+    project_id = str(uuid4())
+    base = Path(workspace.projects_dir or get_settings().projects_dir).resolve()
+    created = base / project_id
+    await run_in_threadpool(lambda: created.mkdir(parents=True, mode=0o755))
+    project = Project(id=project_id, workspace_id=workspace.id, kind=trash.CHAT_WORKSPACE,
+                      name=f"{chat.domain.value.upper()} · {chat.title or 'Вложения'}"[:200], path=str(created))
+    session.add(project)
+    await session.flush()
+    chat.project_id = project_id
+    chat.workspace_id = workspace.id
+    return str(created)
+
+
+async def _read_upload(request: Request) -> bytes:
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > files.MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Файл превышает допустимый размер (50 МБ)")
+        data.extend(chunk)
+    return bytes(data)
+
+
+@router.put("/{chat_id}/uploads")
+async def upload_chat_file(chat_id: str, request: Request, name: str = Query(..., min_length=1, max_length=300),
+                           user: User = Depends(get_current_user),
+                           session: AsyncSession = Depends(get_session)) -> dict:
+    """Принять файл любого формата в inbox чата. Агент увидит его в следующем сообщении."""
+    chat = await _owned_chat(session, user, chat_id)
+    root = await _ensure_chat_project(session, user, chat)
+    payload = await _read_upload(request)
+    with file_errors():
+        item = await run_in_threadpool(uploads.save, root, name, payload)
+    await audit.record(session, actor=user.id, action="chat.file.upload", target=chat_id,
+                       meta={"path": item["path"], "size": item["size"]})
+    await session.commit()
+    return item
 
 
 async def _worker_manager(session, maker, user, chat_id, *, active=True):
@@ -1002,7 +1048,12 @@ async def run_chat(
         chat.model = model
         if not chat.title or chat.title == "Новый чат":
             chat.title = body.content[:80]
+        try:
+            attached = await run_in_threadpool(uploads.bind, root, body.files) if body.files else []
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         user_message = Message(chat_id=chat_id, role="user", content=body.content,
+                               meta={"files": attached} if attached else {},
                                created_at=datetime.now(UTC))
         session.add(user_message)
         await session.flush()

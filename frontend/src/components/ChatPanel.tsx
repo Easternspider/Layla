@@ -4,7 +4,7 @@ import { MarkdownResponse } from "@/components/MarkdownResponse";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Send, Bot, Plus, Loader2, Download, Square, Trash2, Eraser, Zap, ShieldCheck, ClipboardList, ChevronDown, Pencil, Check, Search, FoldVertical, Undo2, Play, SearchCheck, BookMarked, ListChecks, CircleCheck, CircleDot, Circle, X, Users, Link2, type LucideIcon } from "lucide-react";
+import { Send, Bot, Plus, Loader2, Download, Square, Trash2, Eraser, Zap, ShieldCheck, ClipboardList, ChevronDown, Pencil, Check, Search, FoldVertical, Undo2, Play, SearchCheck, BookMarked, ListChecks, CircleCheck, CircleDot, Circle, X, Users, Link2, Paperclip, type LucideIcon } from "lucide-react";
 import { ApiError, GIT_TOOLS, RUN_TOOLS, api, downloadProject, downloadText, type FileContent, type Persona, type ModelInfo, type Chat, type ChatDetail, type FileChange, type Job, type ToolEvent, type PentestServer, type ChatMessage } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import { FileDiff } from "@/components/FileDiff";
@@ -101,6 +101,9 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const modeKey = `layla:mode:${owner}:${domain}`;
   const [mode, setMode] = useState<Mode>("auto");
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [over, setOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
   const generation = useRef(0);
   const request = useRef<{ content: string; chat: string; id: string } | null>(null);
@@ -150,9 +153,24 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const liveTool = messages.flatMap(message => message.meta?.tools || []).find(tool => tool.status === "running" && (tool.name === "server_command" || RUN_TOOLS.has(tool.name)));
   const runningCeiling = liveTool?.name === "server_command" ? (liveTool.timeout_s || 600) : liveTool && RUN_TOOLS.has(liveTool.name) ? 900 : 0;
 
+  function addFiles(list: FileList | File[] | null) {
+    const incoming = Array.from(list || []);
+    if (!incoming.length) return;
+    setFiles(current => {
+      const next = [...current];
+      for (const file of incoming) {
+        if (next.length >= 20) break;
+        next.push(file);
+      }
+      return next;
+    });
+    const big = incoming.find(file => file.size > 50 * 1024 * 1024);
+    if (big) setError(`${big.name}: файл больше 50 МБ`);
+  }
+
   function select(id: string | null) {
     generation.current++;
-    setChatId(id); setError(null); setPersonaId("");
+    setChatId(id); setError(null); setPersonaId(""); setFiles([]);
     remember(scope, id || "new");
     window.dispatchEvent(new CustomEvent("layla:chat-selected", { detail: { domain, id } }));
     setInput(read(`${scope}:draft:${id || "new"}`) || "");
@@ -274,23 +292,30 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
 
   async function send(override?: { text: string; mode: Mode }) {
     const content = (override?.text ?? input).trim();
+    const attached = override ? [] : files;
     const runMode = override?.mode ?? mode;
-    if (!content || running || loading || !ready || lock.current) return;
+    if ((!content && !attached.length) || running || loading || !ready || lock.current) return;
     if (!model) { setError("Добавьте активную модель в настройках провайдеров."); return; }
     lock.current = true; setSending(true); setError(null);
     const version = generation.current;
     let id = chatId;
     try {
       if (!id) {
-        const chat = await api.post<Chat>("/chats", { domain, project_id: projectId || null, title: content.slice(0, 80), persona_id: personaId || null, model, provider_id: selected?.provider_id || null });
+        const chat = await api.post<Chat>("/chats", { domain, project_id: projectId || null, title: (content || attached.map(file => file.name).join(", ")).slice(0, 80), persona_id: personaId || null, model, provider_id: selected?.provider_id || null });
         id = chat.id;
         if (version === generation.current) { setChatId(id); remember(scope, id); }
       }
+      const paths: string[] = [];
+      for (const file of attached) {
+        if (file.size > 50 * 1024 * 1024) throw new Error(`${file.name}: файл больше 50 МБ`);
+        const item = await api.upload<{ path: string }>(`/chats/${id}/uploads?name=${encodeURIComponent(file.name)}`, file);
+        paths.push(item.path);
+      }
       if (!request.current || request.current.content !== content || request.current.chat !== id) request.current = { content, chat: id, id: newRequestId() };
-      await api.post<Job>(`/chats/${id}/run`, { content, model, provider_id: selected?.provider_id, request_id: request.current.id, mode: runMode });
+      await api.post<Job>(`/chats/${id}/run`, { content: content || "Обработай приложенные файлы.", model, provider_id: selected?.provider_id, request_id: request.current.id, mode: runMode, files: paths });
       if (!override) {
         remember(`${scope}:draft:${chatId || "new"}`, "");
-        if (version === generation.current) setInput("");
+        if (version === generation.current) { setInput(""); setFiles([]); }
       }
       request.current = null;
     } catch (e) {
@@ -465,6 +490,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         </div>
         {m.meta?.reasoning && <details className="mb-3 rounded-lg border border-ink-700 p-3"><summary className="cursor-pointer text-xs text-neutral-400">Размышление</summary><p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-neutral-400">{m.meta.reasoning}</p></details>}
         {!!m.meta?.todos?.length && <Todos items={m.meta.todos} />}
+        {m.role === "user" && !!m.meta?.files?.length && <div className="mb-2 flex flex-wrap gap-1">{m.meta.files.map(file => <span key={file.path} className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200">{file.name}</span>)}</div>}
         {m.role === "user" && <div className="whitespace-pre-wrap break-words text-sm leading-7">{m.content}</div>}
         {m.meta?.tools?.map(tool => <div key={tool.id} className={`mt-3 ${tool.status === "running" ? "tool-live" : ""}`}>{tool.status === "pending" ? <Approval tool={tool} active={approval?.id === tool.id} busy={deciding} onDecide={decide} /> : tool.status === "rejected" ? <p className="rounded-lg border border-ink-700 p-3 text-xs text-neutral-400">Отклонено вами · <span className="break-all font-mono">{tool.command || tool.path}</span></p> : tool.name === "delegate_agent" ? <AgentCard tool={tool} /> : RUN_TOOLS.has(tool.name) || GIT_TOOLS.has(tool.name) || tool.name === "project_hook" ? <RunCard tool={tool} /> : tool.change && tool.status === "done" ? <FileDiff change={tool.change} onOpen={tool.workspace_id ? undefined : onOpenFile} /> : <div className={`rounded-lg border p-3 text-xs ${tool.status === "error" ? "border-red-500/30 text-red-300" : "border-ink-700 text-neutral-400"}`}><span>{tool.status === "running" ? "Выполняется" : tool.status === "done" ? "Готово" : "Ошибка"} · {tool.name}</span>{(tool.command || tool.path) && <p className="mt-1 break-all font-mono">{tool.command || tool.path}</p>}{tool.note && <p className="mt-1 text-neutral-500">{tool.note}</p>}{tool.error && <p>{tool.error}</p>}</div>}</div>)}
         {m.role === "assistant" && !!m.content.trim() && <div className={m.meta?.tools?.length ? "mt-4 border-t border-white/10 pt-4" : ""}><MarkdownResponse content={m.content} /></div>}
@@ -490,7 +516,9 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
     </div>}
     <CaptchaGate />
     {domain === "agent" && lastCommand && !running && <div className="mx-4 mb-2"><button className="secondary-button max-w-full text-xs" disabled={sending || !ready} onClick={() => send({ text: `Повтори без изменений последнюю команду server_command. Сервер: ${lastCommand.path || "тот же"}. Команда:\n${lastCommand.command}`, mode })}><Play className="h-3.5 w-3.5 shrink-0" /><span className="truncate">Повторить: {lastCommand.command}</span></button></div>}
-    <div className="chat-composer mx-4 mb-4" data-live={running ? "true" : undefined}>
+    <div className={`chat-composer mx-4 mb-4 ${over ? "ring-1 ring-white/30" : ""}`} data-live={running ? "true" : undefined}
+      onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
+      onDrop={e => { e.preventDefault(); setOver(false); addFiles(e.dataTransfer.files); }}>
       <div role="radiogroup" aria-label="Режим агента" className="mb-2 flex flex-wrap gap-1 text-xs">
         {MODES.map(({ id, label, hint, icon: Icon }) => <button key={id} role="radio" aria-checked={mode === id} title={hint} onClick={() => pickMode(id)} className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ${mode === id ? "bg-accent-500/20 text-accent-100" : "text-neutral-400 hover:bg-ink-900"}`}><Icon className="h-3.5 w-3.5" />{label}</button>)}
       </div>
@@ -500,8 +528,14 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         <select aria-label="Персона" value={personaId} disabled={!!chatId || sending} onChange={e => pickPersona(e.target.value)} className="min-w-0 max-w-full rounded-lg bg-ink-900 px-3 py-2"><option value="">Без персоны</option>{personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
         <select aria-label="Модель" value={choice} disabled={running || sending} onChange={e => pickModel(e.target.value)} className="min-w-0 max-w-full rounded-lg bg-ink-900 px-3 py-2">{!models.length && <option value="">Нет активных моделей</option>}{models.map(m => <option key={`${m.provider_id}|${m.name}`} value={`${m.provider_id}|${m.name}`}>{m.name} · {m.provider}</option>)}</select>
       </div>
-      <div className="flex items-end gap-3"><textarea aria-label="Сообщение агенту" rows={3} value={input} onChange={e => { setInput(e.target.value); remember(`${scope}:draft:${chatId || "new"}`, e.target.value); }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} placeholder={running ? "Задача выполняется. Для другой задачи создайте новый чат." : mode === "plan" ? "Опишите задачу — агент предложит план…" : "Опишите задачу…"} className="min-w-0 flex-1 resize-none bg-transparent p-2 text-sm outline-none" /><button aria-label="Отправить" onClick={() => send()} disabled={!input.trim() || running || sending || loading || !ready} className="primary-button h-11 w-11 shrink-0 !p-0">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button></div>
-      <p className="px-2 pt-2 text-[11px] text-neutral-500">{MODES.find(m => m.id === mode)?.hint}. Работа продолжается в фоне.</p>
+      {!!files.length && <div className="mb-2 flex flex-wrap gap-1">{files.map((file, index) => <span key={`${file.name}-${index}`} className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200">{file.name}<button aria-label={`Убрать ${file.name}`} onClick={() => setFiles(current => current.filter((_, at) => at !== index))} className="text-neutral-400 hover:text-white"><X className="h-3 w-3" /></button></span>)}</div>}
+      <div className="flex items-end gap-3">
+        <input ref={fileRef} type="file" multiple className="hidden" aria-label="Приложить файлы" onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
+        <button aria-label="Приложить файлы" title="Файл любого формата, включая zip, до 50 МБ" disabled={running || sending} onClick={() => fileRef.current?.click()} className="icon-button mb-1"><Paperclip className="h-4 w-4" /></button>
+        <textarea aria-label="Сообщение агенту" rows={3} value={input} onChange={e => { setInput(e.target.value); remember(`${scope}:draft:${chatId || "new"}`, e.target.value); }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} placeholder={running ? "Задача выполняется. Для другой задачи создайте новый чат." : mode === "plan" ? "Опишите задачу — агент предложит план…" : "Опишите задачу…"} className="min-w-0 flex-1 resize-none bg-transparent p-2 text-sm outline-none" />
+        <button aria-label="Отправить" onClick={() => send()} disabled={(!input.trim() && !files.length) || running || sending || loading || !ready} className="primary-button h-11 w-11 shrink-0 !p-0">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
+      </div>
+      <p className="px-2 pt-2 text-[11px] text-neutral-500">{MODES.find(m => m.id === mode)?.hint}. Можно приложить файлы любого формата, включая zip: агент разберёт их и при необходимости скачает инструмент. Работа продолжается в фоне.</p>
     </div>
   </div>;
 }

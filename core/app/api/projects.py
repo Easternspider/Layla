@@ -283,7 +283,7 @@ async def upload_project_file(project_id: str, request: Request,
     data = bytearray()
     async for chunk in request.stream():
         if len(data) + len(chunk) > files.MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="Файл превышает допустимый размер (10 МБ)")
+            raise HTTPException(status_code=413, detail="Файл превышает допустимый размер (50 МБ)")
         data.extend(chunk)
     with file_errors():
         change = await run_in_threadpool(files.change_file, _project_root(project), path,

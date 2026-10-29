@@ -42,6 +42,7 @@ class AgentChatCreate(BaseModel):
     model: str | None = None
     provider_id: str | None = None
     mode: Literal["auto", "confirm", "plan"] = "auto"
+    files: list[str] = Field(default_factory=list, max_length=20)
 
 
 class WorkerOut(BaseModel):

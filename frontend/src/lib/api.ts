@@ -221,6 +221,7 @@ export interface ChatMessage {
     /** Сводка сжатой истории (role = system). */
     kind?: "summary";
     count?: number;
+    files?: { path: string; name: string; size: number }[];
   };
 }
 

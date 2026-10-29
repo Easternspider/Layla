@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 from dataclasses import dataclass
 
@@ -254,3 +255,28 @@ async def run(cfg: SSHConfig, command: str, timeout: int = COMMAND_TIMEOUT, inte
         if conn is not None:
             conn.close()
             await conn.wait_closed()
+
+
+async def put_files(cfg: SSHConfig, directory: str, items: list[tuple[str, bytes]]) -> str:
+    """Положить файлы оператора в $HOME/<directory>/inbox на attackbox. Вернуть ключ хоста."""
+    if not re.fullmatch(r"\.layla/workers/[0-9a-f/]+", directory) or ".." in directory:
+        raise SSHError("Некорректный каталог воркера")
+    conn, host_key = await _connect(cfg)
+    try:
+        home = await conn.run('printf %s "$HOME"', check=False, timeout=CONNECT_TIMEOUT)
+        base = (home.stdout or "").strip()
+        if home.exit_status != 0 or not base.startswith("/") or "\n" in base:
+            raise SSHError("Не удалось определить домашний каталог attackbox")
+        remote = f"{base}/{directory}/inbox"
+        async with conn.start_sftp_client() as sftp:
+            await sftp.makedirs(remote, exist_ok=True)
+            for name, data in items:
+                if not name or "/" in name or name in {".", ".."} or len(data) > 50 * 1024 * 1024:
+                    raise SSHError("Недопустимое вложение")
+                async with sftp.open(f"{remote}/{name}", "wb") as handle:
+                    await handle.write(data)
+        return host_key
+    finally:
+        conn.close()
+        await conn.wait_closed()
+

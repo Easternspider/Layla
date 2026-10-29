@@ -268,7 +268,7 @@ export function CodeDomain() {
     let uploaded = 0;
     try {
       for (const file of selected) {
-        if (file.size > 10 * 1024 * 1024) throw new Error(`${file.name}: файл больше 10 МБ`);
+        if (file.size > 50 * 1024 * 1024) throw new Error(`${file.name}: файл больше 50 МБ`);
         const path = [uploadDirectory.trim().replace(/\/$/, ""), file.name].filter(Boolean).join("/");
         const url = `/projects/${id}/upload?path=${encodeURIComponent(path)}`;
         const existing = await api.get<{ sha256: string | null }>(url);
@@ -423,7 +423,7 @@ export function CodeDomain() {
                 <input value={uploadDirectory} onChange={e => setUploadDirectory(e.target.value)} disabled={pending}
                   aria-label="Папка загрузки" placeholder="Папка загрузки, например src (необязательно)"
                   className="w-full rounded-lg bg-ink-800 px-2 py-2 text-xs" />
-                <p className="mt-1 text-[11px] text-neutral-500">До 10 МБ на файл. Загрузка работает через HTTP и HTTPS.</p>
+                <p className="mt-1 text-[11px] text-neutral-500">До 50 МБ на файл, любой формат. Загрузка работает через HTTP и HTTPS.</p>
                 {uploadNotice && <p role="status" className="mt-1 text-xs text-emerald-300">{uploadNotice}</p>}
               </div>
               {addingFile && (

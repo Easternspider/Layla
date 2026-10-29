@@ -58,6 +58,7 @@ class SendMessageRequest(BaseModel):
     # auto — агент сам применяет изменения; confirm — каждое изменение ждёт «Применить»;
     # plan — только чтение и план, без изменений.
     mode: Literal["auto", "confirm", "plan", "review"] = "auto"
+    files: list[str] = Field(default_factory=list, max_length=20)
 
 
 class DecisionRequest(BaseModel):

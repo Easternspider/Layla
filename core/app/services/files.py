@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path, PureWindowsPath
 
 MAX_FILE_BYTES = 1_000_000
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_ZIP_BYTES = 100 * 1024 * 1024
 MAX_ZIP_ENTRIES = 10_000
 _SKIP_DIRS = {".git", "node_modules", ".venv", "__pycache__", ".next"}
