@@ -81,9 +81,15 @@ async def test_plan_mode_offers_only_read_tools(client, monkeypatch):
     # План — только чтение: файлы и git без коммита/пуша.
     assert seen[0]["tools"] == {
         "list_files", "read_file", "update_todos", "glob_files", "grep_files", "repo_map",
-        "list_skills", "read_skill", "delegate_agent", "web_search", "web_fetch", "github_search",
+        "list_skills", "read_skill", "web_search", "web_fetch", "github_search",
         "git_status", "git_log", "git_diff", "git_conflicts",
+        "browse_open", "browse_look", "browse_see", "browse_scroll", "browse_back",
+        "list_agents", "read_agent", "wait_agents",
+        "list_servers", "server_status", "server_read", "lookup_cve", "search_cves",
+        "read_inbox", "tool_catalog",
     }
+    assert "write_file" not in seen[0]["tools"] and "spawn_agent" not in seen[0]["tools"]
+    assert "server_command" not in seen[0]["tools"] and "browse_click" not in seen[0]["tools"]
     assert "PLAN MODE" in seen[0]["conversation"][0]["content"]
     detail = (await client.get(f"/api/chats/{chat['id']}")).json()
     root = await _root(client, detail["project_id"])

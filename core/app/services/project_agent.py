@@ -854,14 +854,16 @@ async def run(
         from app.services import agent_ops
         ops_specs = ops.tools()
         if mode in READ_ONLY_MODES:
-            ops_specs = [tool for tool in ops_specs if tool["function"]["name"] not in agent_ops.MUTATING]
+            ops_specs = [tool for tool in ops_specs
+                         if tool["function"]["name"] not in agent_ops.MUTATING | {"create_inbox"}]
         available += ops_specs
     if crew is not None:
         available = [tool for tool in available if tool["function"]["name"] != "delegate_agent"]
         held = {tool["function"]["name"] for tool in available}
         crew_specs = crew.tools()
         if mode in READ_ONLY_MODES:
-            crew_specs = [tool for tool in crew_specs if tool["function"]["name"] not in crew.mutating]
+            blocked = crew.mutating | {"spawn_agent", "stop_agent", "create_inbox"}
+            crew_specs = [tool for tool in crew_specs if tool["function"]["name"] not in blocked]
         available += [tool for tool in crew_specs if tool["function"]["name"] not in held]
     git_specs = agent_git.specs(mode) if git is not None and agent_git.can_use(permissions) else []
     available = available + run_specs + git_specs

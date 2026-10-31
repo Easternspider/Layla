@@ -422,7 +422,7 @@ async def test_long_history_is_compacted_into_summary(client, monkeypatch, db_se
     assert summaries and "#0" in summaries[0]["messages"][1]["content"]
     turn = sent[-1]["messages"]
     assert turn[1]["content"] == history.SUMMARY_HEADER + "ok"
-    assert "#15" in turn[2]["content"] and "#19" in turn[-2]["content"]  # свежие — целиком
+    assert "#19" in turn[-2]["content"]  # самый свежий ход — целиком, даже в узком окне
     assert turn[-1]["content"] == "новый вопрос"
     assert any("Контекст сжат: 15 сообщений в сводке" in s["text"] for s in state["steps"])
     # В чате всё на месте, сводка — отдельным сообщением сразу за свёрнутой частью.
