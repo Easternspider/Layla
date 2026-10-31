@@ -12,7 +12,7 @@ from app.models.provider import Provider
 from app.models.user import Project, User, Workspace
 from app.services import crew
 from app.services.crew import SpawnAgent
-from app.services.crew_browser import check_navigation, image_mime, private_host
+from app.services.crew_browser import check_navigation, image_mime, nth_hint, private_host, ref_number
 
 
 async def _world(maker, tmp_path):
@@ -152,6 +152,10 @@ async def test_crew_chat_api(client):
     assert private_host("127.0.0.1") and private_host("localhost")
     assert not private_host("example.com")
     assert image_mime(b"\xff\xd8\xff\x00") == "image/jpeg"
+    assert ref_number("3") == 3 and ref_number("n:12") == 12 and ref_number("Войти") is None
+    assert nth_hint("css:a:nth-of-type(3)") == ("a", 3)
+    assert nth_hint("button:nth-child(2)") == ("button", 2)
+    assert nth_hint("Войти") is None
     with pytest.raises(ValueError):
         check_navigation("http://example.com/path")
     with pytest.raises(ValueError):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import ipaddress
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -31,10 +32,14 @@ _SNAP = """() => {
   };
   const textOf = (el) => (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder')
     || el.getAttribute('alt') || el.getAttribute('value') || '').replace(/\\s+/g, ' ').trim().slice(0, 140);
+  document.querySelectorAll('[data-layla-n]').forEach((el) => el.removeAttribute('data-layla-n'));
   const items = [];
   for (const el of document.querySelectorAll('a, button, input, textarea, select, img, [role="button"], [role="link"]')) {
     if (!visible(el)) continue;
+    const n = items.length + 1;
+    el.setAttribute('data-layla-n', String(n));
     items.push({
+      n,
       tag: el.tagName.toLowerCase(),
       type: el.getAttribute('type') || '',
       name: el.getAttribute('name') || '',
@@ -51,6 +56,22 @@ _SNAP = """() => {
     items,
   };
 }"""
+_REF = re.compile(r"^(?:n:|ref:)?(\d+)$")
+_NTH = re.compile(r"^([a-zA-Z][\w-]*)(?::nth-of-type|:nth-child)\((\d+)\)$")
+_MISS = "Элемент не найден. Укажи номер n из items, например 3, или видимый текст. Не выдумывай css:a:nth-of-type."
+
+
+def ref_number(target: str) -> int | None:
+    match = _REF.fullmatch((target or "").strip())
+    return int(match.group(1)) if match else None
+
+
+def nth_hint(target: str) -> tuple[str, int] | None:
+    raw = (target or "").strip().removeprefix("css:").strip()
+    match = _NTH.fullmatch(raw)
+    if not match:
+        return None
+    return match.group(1).lower(), int(match.group(2))
 
 
 def private_host(host: str | None) -> bool:
@@ -202,23 +223,49 @@ class Desk:
     def _css(self, target: str) -> bool:
         return target.startswith(("css:", "#", ".", "[", "/")) or " > " in target
 
-    def _locator(self, page, target: str):
+    async def _nth(self, page, tag: str, number: int):
+        listed = page.locator(tag)
+        total = await listed.count()
+        if 1 <= number <= total:
+            return listed.nth(number - 1)
+        raise ValueError(f"На странице нет {number}-го элемента {tag}. {_MISS}")
+
+    async def _resolve(self, page, target: str, *, field: bool = False):
+        number = ref_number(target)
+        if number is not None:
+            locator = page.locator(f'[data-layla-n="{number}"]')
+            if await locator.count() == 0:
+                raise ValueError(f"Номера {number} нет на последнем снимке. {_MISS}")
+            return locator
+        hint = nth_hint(target)
+        if hint:
+            return await self._nth(page, hint[0], hint[1])
         if self._css(target):
             return page.locator(target.removeprefix("css:")).first
-        return page.get_by_text(target, exact=False).first
+        if not field:
+            return page.get_by_text(target, exact=False).first
+        locator = page.get_by_label(target).first
+        if await locator.count() == 0:
+            locator = page.get_by_placeholder(target).first
+        if await locator.count() == 0:
+            locator = page.get_by_role("textbox", name=target).first
+        if await locator.count() == 0:
+            locator = page.locator(f"input[name='{target}'], textarea[name='{target}']").first
+        return locator
+
+    async def _click(self, locator) -> None:
+        try:
+            await locator.scroll_into_view_if_needed(timeout=2000)
+            await locator.click(timeout=4000)
+        except Exception as exc:
+            raise ValueError(_MISS + " " + str(exc).split("Call log:", 1)[0].strip()[:160]) from exc
 
     async def _field(self, page, target: str):
-        if self._css(target):
-            locator = page.locator(target.removeprefix("css:")).first
-        else:
-            locator = page.get_by_label(target).first
-            if await locator.count() == 0:
-                locator = page.get_by_placeholder(target).first
-            if await locator.count() == 0:
-                locator = page.get_by_role("textbox", name=target).first
-            if await locator.count() == 0:
-                locator = page.locator(f"input[name='{target}'], textarea[name='{target}']").first
-        await locator.wait_for(state="visible", timeout=8000)
+        locator = await self._resolve(page, target, field=True)
+        try:
+            await locator.wait_for(state="visible", timeout=4000)
+        except Exception as exc:
+            raise ValueError(_MISS) from exc
         return locator
 
     async def open(self, url: str) -> dict:
@@ -242,8 +289,8 @@ class Desk:
         async with self._lock:
             self._touch()
             page = await self._ensure()
-            locator = self._locator(page, target)
-            await locator.click(timeout=8000)
+            locator = await self._resolve(page, target)
+            await self._click(locator)
             png, _path = await self._shot(page)
             return await self._snapshot(page, png)
 
@@ -332,7 +379,7 @@ class Desk:
                 shot["seen"] = seen or "Модель не описала картинку. Файл сохранён: crew/browser/picture"
                 shot["image"] = "crew/browser/picture"
                 return shot
-            locator = self._locator(page, target) if target else None
+            locator = await self._resolve(page, target) if target else None
             png, _path = await self._shot(page, locator)
             question = "Опиши экран как человек: что видно, какие поля и кнопки, есть ли ошибки. Текст цитируй только если он читается."
             seen = await _describe(provider, key, model, png, question)
