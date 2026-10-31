@@ -32,8 +32,11 @@ services:
     restart: unless-stopped
 
   # SOCKS для площадки «эта машина». Наружу порт не публикуется.
+  # torrc делит контуры по сканам и держит их дольше, чтобы длинная проверка не обрывалась.
   tor:
     image: osminogin/tor-simple:latest
+    volumes:
+      - ./deploy/tor/torrc:/etc/tor/torrc:ro
     restart: unless-stopped
 
   litellm:

@@ -58,6 +58,14 @@ def test_effective_route_inheritance():
     )
 
 
+def test_circuit_auth_separates_scans():
+    one = egress.circuit_auth("engagement-a:lead")
+    other = egress.circuit_auth("engagement-b:lead")
+    assert one == egress.circuit_auth("engagement-a:lead")
+    assert one != other
+    assert all(part.isalnum() and " " not in part for part in (*one, *other))
+
+
 def test_no_fallback_to_direct_on_failure():
     # Явная проверка: при сбое tor результат — исключение, а не Direct.
     try:

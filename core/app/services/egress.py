@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -93,6 +94,16 @@ def proxy_endpoint(route: EgressRoute) -> tuple[str, int] | None:
         return host, int(port)
     except ValueError:
         return None
+
+
+def circuit_auth(key: str) -> tuple[str, str]:
+    """Учётные данные SOCKS, по которым Tor держит отдельный контур.
+
+    Сервер их не проверяет: IsolateSOCKSAuth делит сканы, чтобы обрыв одного
+    не гасил остальные. Для обычного прокси эти данные не отправляются.
+    """
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    return "s" + digest[:15], digest[15:31]
 
 
 def tcp_probe(host: str, port: int, timeout: float = 3.0) -> bool:

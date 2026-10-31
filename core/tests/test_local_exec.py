@@ -30,7 +30,11 @@ def test_proxychains_config_is_strict(tmp_path):
     text = path.read_text()
     assert "strict_chain" in text and "proxy_dns" in text
     assert "socks5 tor 9050" in text
+    assert "tcp_connect_time_out 60000" in text
+    assert "tcp_read_time_out 600000" in text
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    local_exec.write_config(path, "tor", 9050, "scan", "secret")
+    assert "socks5 tor 9050 scan secret" in path.read_text()
 
 
 def test_bad_proxy_host_is_rejected():

@@ -195,7 +195,8 @@ async def _operator_identity(session, user: User) -> dict:
     return {"company": company[:200], "responsible_name": responsible[:300], "employee_identifier": employee[:200]}
 
 
-async def _arm(session, user: User, engagement: Engagement, mode: VenueMode, server: Server | None) -> None:
+async def _arm(session, user: User, engagement: Engagement, mode: VenueMode, server: Server | None,
+               route: EgressRoute) -> None:
     """Подтверждает scope этой цели, принимает декларацию и включает наступление на выбранной площадке."""
     sc = await _scope(session, engagement.id)
     if sc is None or not sc.allow:
@@ -212,9 +213,9 @@ async def _arm(session, user: User, engagement: Engagement, mode: VenueMode, ser
         session.add(vn)
     vn.mode = mode
     vn.attack_box_id = server.id if server is not None else None
-    vn.egress_route = (server.egress_route or EgressRoute.direct) if server is not None else EgressRoute.inherit
+    vn.egress_route = route
     await audit.record(session, actor=user.id, action="engagement.batch.arm", target=engagement.id,
-                       meta={"target": engagement.target, "venue": mode.value,
+                       meta={"target": engagement.target, "venue": mode.value, "egress": route.value,
                              "attack_box_id": server.id if server else None, "allow": sc.allow})
 
 
@@ -239,7 +240,7 @@ async def launch_batch(
         await session.flush()
         from app.services.pentest_setup import initialize
         await initialize(session, engagement)
-        await _arm(session, user, engagement, body.venue, server)
+        await _arm(session, user, engagement, body.venue, server, body.egress_route)
         await audit.record(session, actor=user.id, action="engagement.create", target=target)
         created.append(engagement)
     await session.commit()

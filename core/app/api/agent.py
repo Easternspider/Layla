@@ -55,7 +55,8 @@ def _ssh_config(server: Server) -> ssh_exec.SSHConfig:
 
 
 def _attack_box_runner(server: Server | None, worker_directory: str | None = None,
-                       interrupt_key: str | None = None, via: tuple[str, int] | None = None):
+                       interrupt_key: str | None = None, via: tuple[str, int] | None = None,
+                       auth: tuple[str, str] | None = None):
     """runner для venue_executor + ячейка, куда попадёт ключ хоста для закрепления.
 
     None → исполнителя нет (venue_executor поднимет NoExecutorConfigured за гейтами).
@@ -66,6 +67,7 @@ def _attack_box_runner(server: Server | None, worker_directory: str | None = Non
         return None, pin
     cfg = _ssh_config(server)
     cfg.via = via
+    cfg.socks_auth = auth if via else None
 
     async def runner(command: str) -> str:
         if worker_directory:
@@ -368,6 +370,7 @@ async def approve_step(
         if vn.mode == VenueMode.this_machine:
             route = egress.effective_route(vn.egress_route or EgressRoute.inherit)
             via = None
+            auth = egress.circuit_auth(f"{e.id}:{worker.id if worker else 'lead'}") if route == EgressRoute.tor else None
             if route in (EgressRoute.tor, EgressRoute.proxy):
                 if not local_exec.available():
                     raise ActionBlocked(
@@ -384,7 +387,7 @@ async def approve_step(
                 home = engagement_home(e.owner_id, e.id) / "machine"
                 old = projects_root() / "pentest-local" / UUID(e.owner_id).hex / UUID(e.id).hex
                 work = prefer(home, old)
-            runner = local_exec.make_runner(work, step.id, via)
+            runner = local_exec.make_runner(work, step.id, via, auth)
         elif vn.mode == VenueMode.attack_box and vn.attack_box_id:
             server = await session.get(Server, vn.attack_box_id, populate_existing=True)
             if server is None or server.owner_id != e.owner_id:
@@ -396,6 +399,7 @@ async def approve_step(
             runner, pin = _attack_box_runner(
                 server, remote_directory(worker) if worker else None, step.id,
                 via=egress.proxy_endpoint(route),
+                auth=egress.circuit_auth(f"{e.id}:{worker.id if worker else 'lead'}") if route == EgressRoute.tor else None,
             )
         else:
             route = egress.effective_route(vn.egress_route or EgressRoute.inherit)
@@ -779,6 +783,7 @@ async def _attach_pentest_files(session: AsyncSession, user: User, eid: str, wor
         route = egress.effective_route(vn.egress_route or EgressRoute.inherit, server.egress_route)
         cfg = _ssh_config(server)
         cfg.via = egress.proxy_endpoint(route)
+        cfg.socks_auth = egress.circuit_auth(f"{eid}:upload") if route == EgressRoute.tor else None
         try:
             host_key = await ssh_exec.put_files(
                 cfg, pentest_workers.remote_directory(worker), [(item["name"], data) for item, data in items])

@@ -1,0 +1,11 @@
+# Один процесс Tor на все сканы. IsolateSOCKSAuth даёт каждому скану свой контур:
+# обрыв или перегрузка одного не гасит остальные. Учётные данные SOCKS Tor не проверяет.
+SocksPort 0.0.0.0:9050 IsolateSOCKSAuth IsolateDestAddr KeepAliveIsolateSOCKSAuth
+SocksTimeout 120
+CircuitBuildTimeout 60
+LearnCircuitBuildTimeout 0
+MaxCircuitDirtiness 1800
+NewCircuitPeriod 900
+MaxClientCircuitsPending 64
+DataDirectory /var/lib/tor
+Log notice stdout

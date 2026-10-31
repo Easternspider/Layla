@@ -64,6 +64,7 @@ class SSHConfig:
     secret: str | None   # приватный ключ или пароль (расшифрованные)
     host_key: str | None  # закреплённый публичный ключ хоста (export_public_key) или None
     via: tuple[str, int] | None = None  # SOCKS5 (Tor или Proxy); None — прямое соединение
+    socks_auth: tuple[str, str] | None = None  # только Tor: отдельный контур на скан
 
 
 @dataclass
@@ -114,11 +115,12 @@ class _PinnedClient(asyncssh.SSHClient):
             return False
 
 
-def _socks5_socket(proxy_host: str, proxy_port: int, dest_host: str, dest_port: int) -> socket.socket:
-    """Соединение до цели через SOCKS5 без аутентификации (Tor и обычный Proxy)."""
-    sock = socket.create_connection((proxy_host, proxy_port), timeout=CONNECT_TIMEOUT)
+def _socks5_socket(proxy_host: str, proxy_port: int, dest_host: str, dest_port: int,
+                   auth: tuple[str, str] | None = None, timeout: float = CONNECT_TIMEOUT) -> socket.socket:
+    """Соединение до цели через SOCKS5. auth — изоляция контура Tor, не пароль прокси."""
+    sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
     try:
-        sock.settimeout(CONNECT_TIMEOUT)
+        sock.settimeout(timeout)
 
         def recvn(n: int) -> bytes:
             buf = b""
@@ -129,9 +131,21 @@ def _socks5_socket(proxy_host: str, proxy_port: int, dest_host: str, dest_port: 
                 buf += chunk
             return buf
 
-        sock.sendall(b"\x05\x01\x00")
-        if recvn(2) != b"\x05\x00":
-            raise OSError("SOCKS5 не принял подключение без пароля")
+        if auth:
+            user, password = auth
+            raw_user, raw_password = user.encode(), password.encode()
+            if not raw_user or len(raw_user) > 255 or not raw_password or len(raw_password) > 255:
+                raise OSError("Метка контура Tor не помещается в SOCKS5")
+            sock.sendall(b"\x05\x01\x02")
+            if recvn(2) != b"\x05\x02":
+                raise OSError("SOCKS5 не принял отдельный контур")
+            sock.sendall(bytes([1, len(raw_user)]) + raw_user + bytes([len(raw_password)]) + raw_password)
+            if recvn(2)[1] != 0:
+                raise OSError("SOCKS5 отклонил отдельный контур")
+        else:
+            sock.sendall(b"\x05\x01\x00")
+            if recvn(2) != b"\x05\x00":
+                raise OSError("SOCKS5 не принял подключение без пароля")
         host = dest_host.encode("idna")
         if not host or len(host) > 255:
             raise OSError("Имя хоста не помещается в SOCKS5")
@@ -160,7 +174,11 @@ async def _connect(cfg: SSHConfig):
     sock = None
     try:
         if cfg.via:
-            sock = await asyncio.to_thread(_socks5_socket, cfg.via[0], cfg.via[1], cfg.host, cfg.port)
+            timeout = 90
+            sock = await asyncio.to_thread(
+                _socks5_socket, cfg.via[0], cfg.via[1], cfg.host, cfg.port, cfg.socks_auth, timeout)
+        else:
+            timeout = CONNECT_TIMEOUT
         conn = await asyncio.wait_for(
             asyncssh.connect(
                 cfg.host, port=cfg.port, username=cfg.user,
@@ -172,7 +190,7 @@ async def _connect(cfg: SSHConfig):
                 config=None,               # игнорируем ~/.ssh/config
                 sock=sock,
             ),
-            timeout=CONNECT_TIMEOUT,
+            timeout=timeout,
         )
     except asyncssh.HostKeyNotVerifiable as exc:
         raise validator.error or HostKeyChanged("Не удалось проверить ключ хоста") from exc

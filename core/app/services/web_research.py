@@ -118,7 +118,8 @@ async def perform(url: str, host: str, address: str, max_bytes: int, *, verify: 
 
 async def browser_exchange(method: str, url: str, body: str, content_type: str, cookie: str,
                            allow: list[str], deny: list[str],
-                           proxy: tuple[str, int] | None = None) -> dict:
+                           proxy: tuple[str, int] | None = None,
+                           proxy_auth: tuple[str, str] | None = None) -> dict:
     """One Chrome-shaped request to an in-scope target. Same impersonation as public web fetch."""
     method = (method or 'GET').strip().upper()
     if method not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'}:
@@ -135,7 +136,6 @@ async def browser_exchange(method: str, url: str, body: str, content_type: str, 
     decision = check_target(host, allow, deny)
     if not decision.allowed:
         raise ValueError(decision.reason)
-    addresses = await public_addresses(host)
     from curl_cffi import CurlOpt
     from curl_cffi.requests import AsyncSession
     headers = {}
@@ -143,12 +143,23 @@ async def browser_exchange(method: str, url: str, body: str, content_type: str, 
         headers['Content-Type'] = (content_type or 'application/json')[:120]
     if cookie:
         headers['Cookie'] = cookie[:4000]
-    options = {CurlOpt.RESOLVE: [f'{host}:443:{addresses[0]}'], CurlOpt.MAXFILESIZE_LARGE: MAX_BYTES}
-    extra = {"proxy": f"socks5://{proxy[0]}:{proxy[1]}"} if proxy else {}
+    options = {CurlOpt.MAXFILESIZE_LARGE: MAX_BYTES}
+    extra = {}
+    timeout = 20
+    if proxy:
+        from urllib.parse import quote
+        login = ""
+        if proxy_auth and proxy_auth[0] and proxy_auth[1]:
+            login = f"{quote(proxy_auth[0], safe='')}:{quote(proxy_auth[1], safe='')}@"
+        extra = {"proxy": f"socks5h://{login}{proxy[0]}:{proxy[1]}"}
+        timeout = 90
+    else:
+        addresses = await public_addresses(host)
+        options[CurlOpt.RESOLVE] = [f"{host}:443:{addresses[0]}"]
     try:
         async with AsyncSession(impersonate='chrome', curl_options=options) as session:
             response = await session.request(method, url, data=body.encode() if body else None,
-                                             headers=headers or None, allow_redirects=False, timeout=20,
+                                             headers=headers or None, allow_redirects=False, timeout=timeout,
                                              default_headers=True, **extra)
     except Exception as exc:
         raise OSError('цель не ответила на браузерный запрос') from exc

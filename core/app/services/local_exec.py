@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import signal
+import uuid
 from pathlib import Path
 
 from app.services.ssh_exec import COMMAND_TIMEOUT, MAX_OUTPUT
@@ -46,7 +47,8 @@ def socks(via: tuple[str, int] | None) -> tuple[str, int]:
     return host, port
 
 
-def child_env(work: Path, host: str | None = None, port: int | None = None) -> dict[str, str]:
+def child_env(work: Path, host: str | None = None, port: int | None = None,
+              user: str | None = None, password: str | None = None) -> dict[str, str]:
     env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": str(work),
@@ -56,7 +58,8 @@ def child_env(work: Path, host: str | None = None, port: int | None = None) -> d
     }
     if host is None:
         return env
-    proxy = f"socks5h://{host}:{port}"
+    auth = f"{user}:{password}@" if user and password else ""
+    proxy = f"socks5h://{auth}{host}:{port}"
     env.update({
         "ALL_PROXY": proxy,
         "all_proxy": proxy,
@@ -70,56 +73,62 @@ def child_env(work: Path, host: str | None = None, port: int | None = None) -> d
     return env
 
 
-def write_config(path: Path, host: str, port: int) -> None:
+def write_config(path: Path, host: str, port: int, user: str | None = None, password: str | None = None) -> None:
+    login = f" {user} {password}" if user and password else ""
     path.write_text(
         "strict_chain\n"
         "proxy_dns\n"
         "remote_dns_subnet 224\n"
-        "tcp_read_time_out 15000\n"
-        "tcp_connect_time_out 8000\n"
+        "tcp_read_time_out 600000\n"
+        "tcp_connect_time_out 60000\n"
         "[ProxyList]\n"
-        f"socks5 {host} {port}\n",
+        f"socks5 {host} {port}{login}\n",
         encoding="utf-8",
     )
     path.chmod(0o600)
 
 
-def make_runner(work: Path, interrupt_key: str | None, via: tuple[str, int] | None):
+def make_runner(work: Path, interrupt_key: str | None, via: tuple[str, int] | None,
+                auth: tuple[str, str] | None = None):
     async def runner(command: str) -> str:
-        return await run(command, work, via, interrupt_key=interrupt_key)
+        return await run(command, work, via, interrupt_key=interrupt_key, auth=auth)
 
     return runner
 
 
 async def run(command: str, work: Path, via: tuple[str, int] | None, *,
-              interrupt_key: str | None = None, timeout: int = COMMAND_TIMEOUT) -> str:
+              interrupt_key: str | None = None, timeout: int = COMMAND_TIMEOUT,
+              auth: tuple[str, str] | None = None) -> str:
     argv = ["bash", "-lc", command]
     env = child_env(work)
+    config = None
     if via is not None:
         host, port = socks(via)
         binary = shutil.which("proxychains4")
         if not binary:
             raise LocalExecError("proxychains4 не установлен — команда не запущена, прямой выход запрещён")
-        config = work / ".proxychains.conf"
+        user, password = auth if auth else (None, None)
+        config = work / f".proxychains-{uuid.uuid4().hex}.conf"
         argv = [binary, "-q", "-f", str(config), *argv]
-        env = child_env(work, host, port)
+        env = child_env(work, host, port, user, password)
     if interrupt_key and interrupt_key in _stopped:
         _stopped.discard(interrupt_key)
         raise LocalExecError("Команда остановлена оператором")
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if via is not None:
-        write_config(work / ".proxychains.conf", host, port)
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        cwd=str(work),
-        env=env,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        start_new_session=True,
-    )
-    if interrupt_key:
-        _live[interrupt_key] = proc
+    proc = None
     try:
+        if config is not None:
+            write_config(config, host, port, user, password)
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=str(work),
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
+        if interrupt_key:
+            _live[interrupt_key] = proc
         if interrupt_key and interrupt_key in _stopped:
             _kill(proc)
             raise LocalExecError("Команда остановлена оператором")
@@ -144,9 +153,11 @@ async def run(command: str, work: Path, via: tuple[str, int] | None, *,
             text += "\n[…вывод обрезан на пределе.]"
         return text
     finally:
-        if interrupt_key:
+        if proc is not None and interrupt_key:
             _live.pop(interrupt_key, None)
             _stopped.discard(interrupt_key)
+        if config is not None:
+            config.unlink(missing_ok=True)
 
 
 def _kill(proc: asyncio.subprocess.Process) -> None:
