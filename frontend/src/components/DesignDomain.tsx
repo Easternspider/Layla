@@ -86,7 +86,7 @@ export function DesignDomain() {
   // Генерация, начатая раньше (до перезагрузки страницы или в другом разделе), — продолжаем показывать.
   const running = useQuery({
     queryKey: ["design-running-jobs"],
-    queryFn: () => api.get<Job[]>("/jobs?active=true&limit=50"),
+    queryFn: () => api.get<Job[]>("/jobs?active=true&domain=design&limit=50"),
     // Только при открытии раздела и всегда свежий список: старый кеш вернул бы давно законченную задачу.
     staleTime: Infinity,
     gcTime: 0,

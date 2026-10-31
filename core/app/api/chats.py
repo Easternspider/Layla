@@ -76,6 +76,7 @@ from app.services import (
     trash,
     uploads,
 )
+from app.services import places
 from app.services.auth import get_current_user
 
 
@@ -141,24 +142,30 @@ async def _owned_chat(session: AsyncSession, user: User, chat_id: str) -> Chat:
     return chat
 
 
-async def _ensure_chat_project(session: AsyncSession, user: User, chat: Chat) -> str:
-    """Каталог чата: у кода — проект, у остальных доменов создаётся при первом вложении."""
+async def _bind_private_dir(session: AsyncSession, user: User, chat: Chat) -> str:
+    """Своя папка чата. Проект кода не трогаем: у него общая папка репозитория."""
     if chat.project_id:
         return _project_root(await _owned_project(session, user, chat.project_id))
     workspace = await _default_workspace(session, user)
     if workspace is None:
         raise HTTPException(status_code=400, detail="Нет рабочего пространства")
-    project_id = str(uuid4())
-    base = Path(workspace.projects_dir or get_settings().projects_dir).resolve()
-    created = base / project_id
-    await run_in_threadpool(lambda: created.mkdir(parents=True, mode=0o755))
-    project = Project(id=project_id, workspace_id=workspace.id, kind=trash.CHAT_WORKSPACE,
-                      name=f"{chat.domain.value.upper()} · {chat.title or 'Вложения'}"[:200], path=str(created))
+    base = workspace.projects_dir or get_settings().projects_dir
+    domain = chat.domain.value
+    folder = places.chat_dir(user.id, domain, chat.id, base)
+    await run_in_threadpool(lambda: folder.mkdir(parents=True, exist_ok=True, mode=0o700))
+    project = Project(id=str(uuid4()), workspace_id=workspace.id, kind=trash.CHAT_WORKSPACE,
+                      name=f"{('agent' if domain == 'crew' else domain).upper()} · {chat.title or 'Чат'}"[:200],
+                      path=str(folder))
     session.add(project)
     await session.flush()
-    chat.project_id = project_id
+    chat.project_id = project.id
     chat.workspace_id = workspace.id
-    return str(created)
+    return str(folder)
+
+
+async def _ensure_chat_project(session: AsyncSession, user: User, chat: Chat) -> str:
+    """Каталог чата: у кода — проект, у остальных доменов — папка только этого чата."""
+    return await _bind_private_dir(session, user, chat)
 
 
 async def _read_upload(request: Request) -> bytes:
@@ -500,12 +507,13 @@ async def create_chat(
         if persona is None or (not persona.is_builtin and persona.owner_id != user.id):
             raise HTTPException(status_code=404, detail="Персона не найдена")
     project = None
-    if body.project_id:
+    # Агент, пентест и оркестр не садятся в папку проекта кода: у каждого чата своя.
+    if body.project_id and body.domain == Domain.code:
         project = await _owned_project(session, user, body.project_id)
         _project_root(project)
         if body.workspace_id and body.workspace_id != project.workspace_id:
             raise HTTPException(status_code=400, detail="Проект из другого рабочего пространства")
-    if body.workspace_id and project is None:
+    if body.workspace_id and project is None and body.domain == Domain.code:
         workspace = await session.get(Workspace, body.workspace_id)
         if workspace is None or workspace.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Рабочее пространство не найдено")
@@ -522,10 +530,15 @@ async def create_chat(
         persona_id=body.persona_id,
         model=body.model,
         provider_id=provider_id,
-        workspace_id=project.workspace_id if project else body.workspace_id,
+        workspace_id=project.workspace_id if project else (body.workspace_id if body.domain == Domain.code else None),
         project_id=project.id if project else None,
     )
     session.add(chat)
+    await session.flush()
+    # Код без проекта остаётся обычным чатом, пока его не запустили в /run.
+    # Сразу сажать его в папку нельзя: поток /messages тогда идёт через кодового агента.
+    if project is None and body.domain != Domain.code:
+        await _bind_private_dir(session, user, chat)
     await session.commit()
     return chat
 
@@ -569,10 +582,16 @@ async def set_chat_servers(
 @router.get("/{chat_id}", response_model=ChatDetail)
 async def get_chat(
     chat_id: str,
+    domain: str | None = Query(default=None, max_length=32),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ChatDetail:
     chat = await _owned_chat(session, user, chat_id)
+    if domain:
+        actual = chat.domain.value
+        allowed = {domain, "crew"} if domain == "agent" else {domain}
+        if actual not in allowed:
+            raise HTTPException(status_code=404, detail="Чат другого раздела")
     msgs = await session.scalars(
         select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at)
     )
@@ -1062,22 +1081,10 @@ async def run_chat(
     if chat.project_id:
         project = await _owned_project(session, user, chat.project_id)
     else:
-        # OSINT, Design and Pentest also need an actual isolated output directory.
-        workspace = await _default_workspace(session, user)
-        if workspace is None:
-            raise HTTPException(status_code=400, detail="Нет рабочего пространства")
-        project_id = str(uuid4())
-        base = Path(workspace.projects_dir or get_settings().projects_dir).resolve()
-        created_root = base / project_id
-        await run_in_threadpool(lambda: created_root.mkdir(parents=True, mode=0o755))
-        project = Project(id=project_id, workspace_id=workspace.id, kind=trash.CHAT_WORKSPACE,
-                          name=f"{domain.upper()} · {chat.title or body.content[:60]}"[:200], path=str(created_root))
-        session.add(project)
-        # Сначала INSERT проекта, потом ссылка на него: без связи в ORM Postgres
-        # иначе получал UPDATE chats раньше INSERT projects и отклонял внешний ключ.
-        await session.flush()
-        chat.project_id = project_id
-        chat.workspace_id = workspace.id
+        # Старый чат без папки: каталог только этого чата, не общая куча.
+        created = await _bind_private_dir(session, user, chat)
+        created_root = Path(created)
+        project = await _owned_project(session, user, chat.project_id)
     root = _project_root(project)
     project_id = project.id
     mode = body.mode
@@ -1330,3 +1337,31 @@ async def run_chat(
 
     jobs.launch(maker, job.id, worker)
     return job
+
+
+agent_router = APIRouter(prefix="/agent/chats", tags=["agent-chats"])
+
+
+@agent_router.post("", response_model=ChatOut, status_code=201)
+async def create_agent_chat(
+    body: ChatCreate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Chat:
+    """Чат только раздела Агент. Папка не общая с кодом, пентестом и другими чатами."""
+    private = body.model_copy(update={"domain": Domain.agent, "project_id": None, "workspace_id": None})
+    return await create_chat(private, user, session)
+
+
+@agent_router.post("/{chat_id}/run", response_model=JobOut, status_code=202)
+async def run_agent_chat(
+    chat_id: str,
+    body: SendMessageRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    maker: async_sessionmaker[AsyncSession] = Depends(get_sessionmaker),
+) -> Job:
+    chat = await _owned_chat(session, user, chat_id)
+    if chat.domain not in (Domain.agent, Domain.crew):
+        raise HTTPException(status_code=404, detail="Это не чат раздела Агент")
+    return await run_chat(chat_id, body, user, session, maker)

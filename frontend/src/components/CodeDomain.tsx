@@ -112,8 +112,8 @@ export function CodeDomain() {
   }, [projects, projectId, projectKey, refreshingProjects]);
   useEffect(() => { if (projectId) try { localStorage.setItem(projectKey, projectId); } catch {} }, [projectId, projectKey]);
   const jobs = useQuery({
-    queryKey: ["jobs", owner, "active"], enabled: !!owner,
-    queryFn: () => api.get<Job[]>("/jobs?active=true&limit=500"),
+    queryKey: ["jobs", owner, "code"], enabled: !!owner,
+    queryFn: () => api.get<Job[]>("/jobs?active=true&domain=code&limit=500"),
     refetchInterval: 4000, refetchIntervalInBackground: true,
   });
   const visibleProjects = useMemo(() => {

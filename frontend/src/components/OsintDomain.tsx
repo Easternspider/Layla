@@ -249,8 +249,8 @@ export function OsintDomain() {
     getNextPageParam: (last, pages) => last.length === pageSize ? pages.length * pageSize : undefined,
   });
   const jobs = useQuery({
-    queryKey: ["jobs", owner, "active"], enabled: !!owner,
-    queryFn: () => api.get<Job[]>("/jobs?active=true&limit=500"),
+    queryKey: ["jobs", owner, "osint"], enabled: !!owner,
+    queryFn: () => api.get<Job[]>("/jobs?active=true&domain=osint&limit=500"),
     refetchInterval: 4000, refetchIntervalInBackground: true,
   });
   const cases = query.data?.pages.flat() || [];

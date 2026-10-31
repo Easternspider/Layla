@@ -94,7 +94,9 @@ def box_note(items: list[dict], *, staged: bool, reason: str = "", local: bool =
 
 
 def pending_dir(projects_dir: str, owner_id: str, engagement_id: str) -> Path:
-    return Path(projects_dir).resolve() / "pentest-inbox" / UUID(owner_id).hex / UUID(engagement_id).hex
+    from app.services.places import engagement_home, prefer
+    old = Path(projects_dir).resolve() / "pentest-inbox" / UUID(owner_id).hex / UUID(engagement_id).hex
+    return prefer(engagement_home(owner_id, engagement_id, projects_dir) / "inbox", old)
 
 
 def take(directory: str, names: list[str]) -> list[tuple[dict, bytes]]:

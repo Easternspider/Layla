@@ -51,9 +51,9 @@ export function CrewDomain() {
     queryFn: () => api.get<Chat[]>("/chats?domain=crew"),
   });
   const jobs = useQuery({
-    queryKey: ["jobs", owner],
+    queryKey: ["jobs", owner, "agent"],
     enabled: !!owner,
-    queryFn: () => api.get<Job[]>("/jobs?limit=100"),
+    queryFn: () => api.get<Job[]>("/jobs?domain=agent&limit=100"),
     refetchInterval: 2000,
   });
   const members = useQuery({

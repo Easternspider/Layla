@@ -382,8 +382,10 @@ async def approve_step(
                 from app.services.pentest_workers import root as worker_root
                 work = worker_root(worker)
             else:
-                from app.config import get_settings
-                work = Path(get_settings().projects_dir) / "pentest-local" / UUID(e.owner_id).hex / UUID(e.id).hex
+                from app.services.places import engagement_home, prefer, projects_root
+                home = engagement_home(e.owner_id, e.id) / "machine"
+                old = projects_root() / "pentest-local" / UUID(e.owner_id).hex / UUID(e.id).hex
+                work = prefer(home, old)
             runner = local_exec.make_runner(work, step.id, via)
         elif vn.mode == VenueMode.attack_box and vn.attack_box_id:
             server = await session.get(Server, vn.attack_box_id, populate_existing=True)
@@ -799,6 +801,7 @@ async def _attach_pentest_files(session: AsyncSession, user: User, eid: str, wor
     return uploads.box_note([item for item, _data in items], staged=staged, reason=reason, local=on_machine)
 
 
+@router.post('/engagements/{eid}/chat', response_model=AgentRunOut, status_code=202)
 @router.post('/engagements/{eid}/agent/chat', response_model=AgentRunOut, status_code=202)
 async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_current_user),
                      session: AsyncSession = Depends(get_session), maker=Depends(get_sessionmaker)):

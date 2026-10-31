@@ -54,9 +54,9 @@ export function AgentDomain() {
     queryFn: () => api.get<Chat[]>("/chats?domain=agent"),
   });
   const jobs = useQuery({
-    queryKey: ["jobs", owner],
+    queryKey: ["jobs", owner, "agent"],
     enabled: !!owner,
-    queryFn: () => api.get<Job[]>("/jobs?limit=100"),
+    queryFn: () => api.get<Job[]>("/jobs?domain=agent&limit=100"),
     refetchInterval: 2000,
   });
   const servers = useQuery({ queryKey: ["servers"], queryFn: () => api.get<PentestServer[]>("/servers") });
@@ -80,7 +80,7 @@ export function AgentDomain() {
     onError: err => setError(err instanceof Error ? err.message : "Выбор серверов не сохранился"),
   });
   const create = useMutation({
-    mutationFn: () => api.post<Chat>("/chats", { domain: "agent", title: "Новая задача" }),
+    mutationFn: () => api.post<Chat>("/agent/chats", { title: "Новая задача" }),
     onSuccess: chat => {
       qc.invalidateQueries({ queryKey: ["chats", owner, "agent", undefined] });
       window.dispatchEvent(new CustomEvent("layla:open-chat", { detail: chat }));

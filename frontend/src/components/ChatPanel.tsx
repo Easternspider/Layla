@@ -88,6 +88,8 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const owner = useAuth(s => s.user?.id);
   const qc = useQueryClient();
   const scope = `layla:chat:${owner}:${domain}:${projectId || ""}`;
+  const ownChat = domain === "agent" || domain === "crew";
+  const detailDomain = domain === "crew" ? "agent" : domain;
   const [chatId, setChatId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
@@ -124,8 +126,9 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   });
   const listed = needle ? found.data || [] : history.data || [];
   const [renaming, setRenaming] = useState<string | null>(null);
-  const detail = useQuery({ queryKey: ["chat", owner, chatId], enabled: !!chatId,
-    queryFn: () => api.get<ChatDetail>(`/chats/${chatId}`),
+  const detail = useQuery({ queryKey: ["chat", owner, chatId, detailDomain], enabled: !!chatId,
+    queryFn: () => api.get<ChatDetail>(`/chats/${chatId}?domain=${encodeURIComponent(detailDomain)}`),
+    retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 2,
     refetchInterval: q => active(q.state.data?.last_job) ? 1000 : false,
     refetchIntervalInBackground: true,
   });
@@ -208,6 +211,12 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
     return () => window.removeEventListener("layla:new-chat", fresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domain, projectId]);
+  useEffect(() => {
+    if (!chatId || !(detail.error instanceof ApiError) || detail.error.status !== 404) return;
+    select(null);
+    // A chat from another section must not stay open here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, detail.error]);
   const chatProject = detail.data?.project_id ?? null;
   // Каждый чат работает в своём каталоге на диске: сообщаем его наружу,
   // чтобы домен мог показать результат (превью) и открыть тот же проект в «Коде».
@@ -301,7 +310,11 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
     let id = chatId;
     try {
       if (!id) {
-        const chat = await api.post<Chat>("/chats", { domain, project_id: projectId || null, title: (content || attached.map(file => file.name).join(", ")).slice(0, 80), persona_id: personaId || null, model, provider_id: selected?.provider_id || null });
+        const title = (content || attached.map(file => file.name).join(", ")).slice(0, 80);
+        const fields = { title, persona_id: personaId || null, model, provider_id: selected?.provider_id || null };
+        const chat = ownChat
+          ? await api.post<Chat>("/agent/chats", fields)
+          : await api.post<Chat>("/chats", { ...fields, domain, project_id: projectId || null });
         id = chat.id;
         if (version === generation.current) { setChatId(id); remember(scope, id); }
       }
@@ -312,7 +325,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         paths.push(item.path);
       }
       if (!request.current || request.current.content !== content || request.current.chat !== id) request.current = { content, chat: id, id: newRequestId() };
-      await api.post<Job>(`/chats/${id}/run`, { content: content || "Обработай приложенные файлы.", model, provider_id: selected?.provider_id, request_id: request.current.id, mode: runMode, files: paths });
+      await api.post<Job>(ownChat ? `/agent/chats/${id}/run` : `/chats/${id}/run`, { content: content || "Обработай приложенные файлы.", model, provider_id: selected?.provider_id, request_id: request.current.id, mode: runMode, files: paths });
       if (!override) {
         remember(`${scope}:draft:${chatId || "new"}`, "");
         if (version === generation.current) { setInput(""); setFiles([]); }

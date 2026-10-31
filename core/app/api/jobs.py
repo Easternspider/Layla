@@ -32,6 +32,7 @@ async def list_jobs(
     active: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     chat_id: str | None = None,
+    domain: str | None = Query(default=None, max_length=32),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[JobOut]:
@@ -41,6 +42,11 @@ async def list_jobs(
                               or_(Job.chat_id.is_(None), Job.chat_id.not_in(trashed)))
     if chat_id:
         query = query.where(Job.chat_id == chat_id)
+    if domain == "agent":
+        # Старые субагенты записаны как crew. Это тот же раздел, не чужие задачи.
+        query = query.where(Job.domain.in_(("agent", "crew")))
+    elif domain:
+        query = query.where(Job.domain == domain)
     if active:
         query = query.where(Job.status.in_(_ACTIVE))
     query = query.order_by(Job.created_at.desc()).limit(limit)
