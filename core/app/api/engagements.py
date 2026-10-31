@@ -195,8 +195,8 @@ async def _operator_identity(session, user: User) -> dict:
     return {"company": company[:200], "responsible_name": responsible[:300], "employee_identifier": employee[:200]}
 
 
-async def _arm(session, user: User, engagement: Engagement, server: Server) -> None:
-    """Подтверждает scope этой цели, принимает декларацию и включает наступление на выбранном attackbox."""
+async def _arm(session, user: User, engagement: Engagement, mode: VenueMode, server: Server | None) -> None:
+    """Подтверждает scope этой цели, принимает декларацию и включает наступление на выбранной площадке."""
     sc = await _scope(session, engagement.id)
     if sc is None or not sc.allow:
         raise HTTPException(422, f"Для {engagement.target} не собрался scope")
@@ -210,11 +210,12 @@ async def _arm(session, user: User, engagement: Engagement, server: Server) -> N
     if vn is None:
         vn = Venue(engagement_id=engagement.id)
         session.add(vn)
-    vn.mode = VenueMode.attack_box
-    vn.attack_box_id = server.id
-    vn.egress_route = server.egress_route or EgressRoute.direct
+    vn.mode = mode
+    vn.attack_box_id = server.id if server is not None else None
+    vn.egress_route = (server.egress_route or EgressRoute.direct) if server is not None else EgressRoute.inherit
     await audit.record(session, actor=user.id, action="engagement.batch.arm", target=engagement.id,
-                       meta={"target": engagement.target, "attack_box_id": server.id, "allow": sc.allow})
+                       meta={"target": engagement.target, "venue": mode.value,
+                             "attack_box_id": server.id if server else None, "allow": sc.allow})
 
 
 @router.post("/batch", response_model=EngagementBatchOut, status_code=201)
@@ -226,9 +227,11 @@ async def launch_batch(
 ) -> EngagementBatchOut:
     """Несколько целей разом: у каждой свой engagement и scope, одна выбранная площадка."""
     targets = _batch_targets(body.targets)
-    server = await session.get(Server, body.attack_box_id)
-    if server is None or server.owner_id != user.id:
-        raise HTTPException(404, "Attack box не найден")
+    server = None
+    if body.venue == VenueMode.attack_box:
+        server = await session.get(Server, body.attack_box_id)
+        if server is None or server.owner_id != user.id:
+            raise HTTPException(404, "Attack box не найден")
     created: list[Engagement] = []
     for target in targets:
         engagement = Engagement(owner_id=user.id, target=target, workspace_id=None)
@@ -236,7 +239,7 @@ async def launch_batch(
         await session.flush()
         from app.services.pentest_setup import initialize
         await initialize(session, engagement)
-        await _arm(session, user, engagement, server)
+        await _arm(session, user, engagement, body.venue, server)
         await audit.record(session, actor=user.id, action="engagement.create", target=target)
         created.append(engagement)
     await session.commit()
@@ -247,6 +250,7 @@ async def launch_batch(
         from app.api.agent import agent_chat
         from app.schemas.agent import AgentChatCreate
         note = " ".join((body.instruction or "").split())
+        place = "эта машина" if body.venue == VenueMode.this_machine else "выбранный attackbox"
         for engagement in created:
             if note:
                 task = (f"Задача оператора для {engagement.target}: {note}\n"
@@ -255,7 +259,7 @@ async def launch_batch(
             else:
                 task = (f"Проведи авторизованный пентест {engagement.target}. "
                         "Scope этого engagement уже подтверждён и относится только к этой цели. "
-                        "Площадка — выбранный attackbox, наступательные действия включены. "
+                        f"Площадка — {place}, наступательные действия включены. "
                         "Начни с разведки и доводи признаки до доказанного влияния.")
             try:
                 await agent_chat(engagement.id, AgentChatCreate(
