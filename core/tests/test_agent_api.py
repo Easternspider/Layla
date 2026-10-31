@@ -57,16 +57,24 @@ async def test_create_run_plans_steps_with_hitl(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approve_in_scope_command_gated_no_executor(client, monkeypatch):
+    from app.services import local_exec
     eid = await _setup(client, monkeypatch)
     run = (
         await client.post(f"/api/engagements/{eid}/agent/runs",
                           json={"task": "t", "mode": "interactive"})
     ).json()
     in_scope = next(s for s in run["steps"] if s["command"] and "example.com" in s["command"])
+
+    async def fake_run(command, work, via, **kwargs):
+        assert via is None
+        assert "example.com" in command
+        return "nmap fixture"
+
+    monkeypatch.setattr(local_exec, "run", fake_run)
     res = (await client.post(f"/api/agent/steps/{in_scope['id']}/approve")).json()
-    # Гейты пройдены (в scope, authorized), но реальный исполнитель не подключён.
-    assert res["status"] == "blocked"
-    assert "tor" in res["output"].lower() or "прокси" in res["output"].lower()
+    # Гейты пройдены. На этой машине direct выполняется локально, без Tor.
+    assert res["status"] == "done", res
+    assert "nmap fixture" in res["output"]
 
 
 @pytest.mark.asyncio

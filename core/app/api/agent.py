@@ -367,17 +367,15 @@ async def approve_step(
         )
         if vn.mode == VenueMode.this_machine:
             route = egress.effective_route(vn.egress_route or EgressRoute.inherit)
-            if route not in (EgressRoute.tor, EgressRoute.proxy):
-                raise ActionBlocked(
-                    "Эта машина выполняет команды только через Tor или прокси. Прямой выход запрещён."
-                )
-            if not local_exec.available():
-                raise ActionBlocked(
-                    "На этой машине нет proxychains4 — команда не запущена, прямой выход запрещён."
-                )
-            via = egress.proxy_endpoint(route)
-            if via is None:
-                raise EgressBlocked("Адрес Tor или прокси не задан — трафик заблокирован")
+            via = None
+            if route in (EgressRoute.tor, EgressRoute.proxy):
+                if not local_exec.available():
+                    raise ActionBlocked(
+                        "На этой машине нет proxychains4 — команда не запущена, прямой выход запрещён."
+                    )
+                via = egress.proxy_endpoint(route)
+                if via is None:
+                    raise EgressBlocked("Адрес Tor или прокси не задан — трафик заблокирован")
             if worker is not None:
                 from app.services.pentest_workers import root as worker_root
                 work = worker_root(worker)

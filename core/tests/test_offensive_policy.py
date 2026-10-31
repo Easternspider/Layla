@@ -22,9 +22,16 @@ async def test_switch_blocks_already_planned_step(client, monkeypatch):
     assert result['status'] == 'blocked'
     assert 'выключены' in result['output']
     await client.put(f'/api/engagements/{eid}/offensive', json={'enabled': True})
+    from app.services import local_exec
+
+    async def fake_run(command, work, via, **kwargs):
+        assert via is None
+        return "ok"
+
+    monkeypatch.setattr(local_exec, "run", fake_run)
     result = (await client.post(f"/api/agent/steps/{step['id']}/approve")).json()
-    assert result['status'] == 'blocked'
-    assert 'tor' in result['output'].lower() or 'прокси' in result['output'].lower()
+    assert result['status'] == 'done', result
+    assert 'ok' in result['output']
 
 
 @pytest.mark.asyncio

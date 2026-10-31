@@ -1,7 +1,8 @@
-"""Команды пентеста на этой машине, только через Tor или прокси.
+"""Команды пентеста на этой машине.
 
-Прямого выхода нет: процесс запускается через proxychains4 (strict_chain, DNS тоже
-через SOCKS). Если обёртки или маршрута нет, команда не стартует.
+Direct запускает команду как есть, без прокси. Tor и Proxy идут через
+proxychains4 (strict_chain, DNS тоже через SOCKS). Если обёртки или маршрута
+нет, такая команда не стартует и на direct не откатывается.
 Секреты процесса Лейлы в окружение команды не попадают.
 """
 from __future__ import annotations
@@ -45,13 +46,18 @@ def socks(via: tuple[str, int] | None) -> tuple[str, int]:
     return host, port
 
 
-def child_env(work: Path, host: str, port: int) -> dict[str, str]:
-    proxy = f"socks5h://{host}:{port}"
-    return {
+def child_env(work: Path, host: str | None = None, port: int | None = None) -> dict[str, str]:
+    env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": str(work),
         "LANG": "C.UTF-8",
         "TMPDIR": str(work),
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    if host is None:
+        return env
+    proxy = f"socks5h://{host}:{port}"
+    env.update({
         "ALL_PROXY": proxy,
         "all_proxy": proxy,
         "HTTP_PROXY": proxy,
@@ -60,8 +66,8 @@ def child_env(work: Path, host: str, port: int) -> dict[str, str]:
         "https_proxy": proxy,
         "NO_PROXY": "",
         "no_proxy": "",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
+    })
+    return env
 
 
 def write_config(path: Path, host: str, port: int) -> None:
@@ -78,7 +84,7 @@ def write_config(path: Path, host: str, port: int) -> None:
     path.chmod(0o600)
 
 
-def make_runner(work: Path, interrupt_key: str | None, via: tuple[str, int]):
+def make_runner(work: Path, interrupt_key: str | None, via: tuple[str, int] | None):
     async def runner(command: str) -> str:
         return await run(command, work, via, interrupt_key=interrupt_key)
 
@@ -87,20 +93,26 @@ def make_runner(work: Path, interrupt_key: str | None, via: tuple[str, int]):
 
 async def run(command: str, work: Path, via: tuple[str, int] | None, *,
               interrupt_key: str | None = None, timeout: int = COMMAND_TIMEOUT) -> str:
-    host, port = socks(via)
-    binary = shutil.which("proxychains4")
-    if not binary:
-        raise LocalExecError("proxychains4 не установлен — команда не запущена, прямой выход запрещён")
+    argv = ["bash", "-lc", command]
+    env = child_env(work)
+    if via is not None:
+        host, port = socks(via)
+        binary = shutil.which("proxychains4")
+        if not binary:
+            raise LocalExecError("proxychains4 не установлен — команда не запущена, прямой выход запрещён")
+        config = work / ".proxychains.conf"
+        argv = [binary, "-q", "-f", str(config), *argv]
+        env = child_env(work, host, port)
     if interrupt_key and interrupt_key in _stopped:
         _stopped.discard(interrupt_key)
         raise LocalExecError("Команда остановлена оператором")
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
-    config = work / ".proxychains.conf"
-    write_config(config, host, port)
+    if via is not None:
+        write_config(work / ".proxychains.conf", host, port)
     proc = await asyncio.create_subprocess_exec(
-        binary, "-q", "-f", str(config), "bash", "-lc", command,
+        *argv,
         cwd=str(work),
-        env=child_env(work, host, port),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
