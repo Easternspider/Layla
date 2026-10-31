@@ -9,7 +9,7 @@ WORKDIR /app
 # git нужен для импорта проектов из репозиториев (POST /projects/import).
 # asyncpg / cryptography ставятся из prebuilt-колёс, компиляторы не нужны.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates proxychains4 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./

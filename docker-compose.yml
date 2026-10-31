@@ -31,6 +31,11 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # SOCKS для площадки «эта машина». Наружу порт не публикуется.
+  tor:
+    image: osminogin/tor-simple:latest
+    restart: unless-stopped
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     command: ["--config", "/app/config.yaml", "--port", "4000"]
@@ -54,6 +59,8 @@ services:
         condition: service_healthy
       litellm:
         condition: service_started
+      tor:
+        condition: service_started
     # Импортированные/созданные проекты и файлы агента должны переживать
     # пересборку. projects_dir по умолчанию — ./data/projects, а WORKDIR=/app,
     # т.е. /app/data/projects. Без этого тома проекты терялись при rebuild,
@@ -65,6 +72,8 @@ services:
       # Порт превью снаружи (как опубликован у caddy) или полный адрес, если превью на своём домене.
       LAYLA_PREVIEW_PORT: ${LAYLA_PREVIEW_PORT:-8090}
       LAYLA_PREVIEW_URL: ${LAYLA_PREVIEW_URL:-}
+      # Пентест без attack box: команды этой машины идут в SOCKS Tor. Свой адрес — в .env.
+      LAYLA_TOR_ADDR: ${LAYLA_TOR_ADDR:-tor:9050}
     volumes:
       - projectsdata:/app/data/projects
       - sandboxsock:/run/layla-sandbox

@@ -66,7 +66,7 @@ async def test_approve_in_scope_command_gated_no_executor(client, monkeypatch):
     res = (await client.post(f"/api/agent/steps/{in_scope['id']}/approve")).json()
     # Гейты пройдены (в scope, authorized), но реальный исполнитель не подключён.
     assert res["status"] == "blocked"
-    assert "исполнитель" in res["output"].lower()
+    assert "tor" in res["output"].lower() or "прокси" in res["output"].lower()
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,9 @@ scope/venue/egress-гейт и HITL-подтверждение оператор�
 """
 from __future__ import annotations
 
+from pathlib import Path
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +37,7 @@ from app.schemas.agent import (
 )
 from app.schemas.job import JobOut
 from app.security import crypto
-from app.services import audit, egress, files, jobs, orchestrator, provider_client, ssh_exec, uploads, venue_executor
+from app.services import audit, egress, files, jobs, local_exec, orchestrator, provider_client, ssh_exec, uploads, venue_executor
 from app.services.auth import get_current_user
 from app.services.egress import EgressBlocked
 from app.services.venue_gate import ActionBlocked
@@ -356,19 +359,47 @@ async def approve_step(
         document = await authorization.read(session, e)
         if not document["valid"]:
             raise ActionBlocked(document["reason"] or "Декларация не подтверждена")
-        if vn.mode == VenueMode.attack_box and vn.attack_box_id:
+        from app.services.venue_gate import assert_active_action_allowed
+        assert_active_action_allowed(
+            target=step.target or e.target, venue_mode=vn.mode, authorized=e.authorized,
+            scope_confirmed=bool(sc and sc.confirmed),
+            allow=(sc.allow if sc else []) or [], deny=(sc.deny if sc else []) or [],
+        )
+        if vn.mode == VenueMode.this_machine:
+            route = egress.effective_route(vn.egress_route or EgressRoute.inherit)
+            if route not in (EgressRoute.tor, EgressRoute.proxy):
+                raise ActionBlocked(
+                    "Эта машина выполняет команды только через Tor или прокси. Прямой выход запрещён."
+                )
+            if not local_exec.available():
+                raise ActionBlocked(
+                    "На этой машине нет proxychains4 — команда не запущена, прямой выход запрещён."
+                )
+            via = egress.proxy_endpoint(route)
+            if via is None:
+                raise EgressBlocked("Адрес Tor или прокси не задан — трафик заблокирован")
+            if worker is not None:
+                from app.services.pentest_workers import root as worker_root
+                work = worker_root(worker)
+            else:
+                from app.config import get_settings
+                work = Path(get_settings().projects_dir) / "pentest-local" / UUID(e.owner_id).hex / UUID(e.id).hex
+            runner = local_exec.make_runner(work, step.id, via)
+        elif vn.mode == VenueMode.attack_box and vn.attack_box_id:
             server = await session.get(Server, vn.attack_box_id, populate_existing=True)
             if server is None or server.owner_id != e.owner_id:
                 raise ActionBlocked("Attack box не найден")
-        from app.services.pentest_workers import remote_directory
-        route = egress.effective_route(
-            vn.egress_route or EgressRoute.inherit,
-            server.egress_route if server is not None else None,
-        )
-        runner, pin = _attack_box_runner(
-            server, remote_directory(worker) if worker else None, step.id,
-            via=egress.proxy_endpoint(route),
-        )
+            from app.services.pentest_workers import remote_directory
+            route = egress.effective_route(
+                vn.egress_route or EgressRoute.inherit, server.egress_route,
+            )
+            runner, pin = _attack_box_runner(
+                server, remote_directory(worker) if worker else None, step.id,
+                via=egress.proxy_endpoint(route),
+            )
+        else:
+            route = egress.effective_route(vn.egress_route or EgressRoute.inherit)
+            runner, pin = None, {"host_key": None}
         result = await venue_executor.execute(
             target=step.target or e.target,
             command=step.command,
@@ -389,9 +420,10 @@ async def approve_step(
     except EgressBlocked as exc:
         step.status = "blocked"
         step.output = f"Egress заблокирован: {exc}"
-    except ssh_exec.SSHError as exc:
+    except (ssh_exec.SSHError, local_exec.LocalExecError) as exc:
         step.status = "cancelled" if "остановлена оператором" in str(exc) else "failed"
-        step.output = f"Attack box: {exc}"
+        where = "Эта машина" if isinstance(exc, local_exec.LocalExecError) else "Attack box"
+        step.output = f"{where}: {exc}"
     except venue_executor.NoExecutorConfigured as exc:
         step.status = "blocked"
         step.output = f"{exc}"
@@ -418,6 +450,7 @@ async def stop_run(
     running = list(await session.scalars(select(AgentStep.id).where(
         AgentStep.run_id == rid, AgentStep.status == "running", AgentStep.kind == "command")))
     ssh_exec.interrupt(running)
+    local_exec.interrupt(running)
     await session.execute(update(AgentStep).where(AgentStep.run_id == rid,
         AgentStep.status.in_(("awaiting_approval", "ready", "blocked", "failed"))).values(status="denied"))
     run.status = AgentRunStatus.completed
@@ -733,10 +766,12 @@ async def _attach_pentest_files(session: AsyncSession, user: User, eid: str, wor
     await run_in_threadpool(lambda: local.mkdir(parents=True, exist_ok=True, mode=0o700))
     for item, data in items:
         await run_in_threadpool(files.change_file, str(local), item["path"], data, None)
-    staged, reason = False, "attackbox не выбран"
+    staged, reason, on_machine = False, "attackbox не выбран", False
     vn = await session.scalar(select(Venue).where(Venue.engagement_id == eid))
     server = None
-    if vn and vn.mode == VenueMode.attack_box and vn.attack_box_id:
+    if vn and vn.mode == VenueMode.this_machine:
+        staged, reason, on_machine = True, "", True
+    elif vn and vn.mode == VenueMode.attack_box and vn.attack_box_id:
         server = await session.get(Server, vn.attack_box_id)
         if server is None or server.owner_id != user.id:
             server, reason = None, "attackbox не найден"
@@ -761,7 +796,7 @@ async def _attach_pentest_files(session: AsyncSession, user: User, eid: str, wor
                 pass
 
     await run_in_threadpool(_drop)
-    return uploads.box_note([item for item, _data in items], staged=staged, reason=reason)
+    return uploads.box_note([item for item, _data in items], staged=staged, reason=reason, local=on_machine)
 
 
 @router.post('/engagements/{eid}/agent/chat', response_model=AgentRunOut, status_code=202)

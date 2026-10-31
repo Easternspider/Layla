@@ -85,8 +85,11 @@ def chat_note(items: list[dict]) -> str:
     return note(items, where=_WHERE_CHAT)
 
 
-def box_note(items: list[dict], *, staged: bool, reason: str = "") -> str:
-    where = _WHERE_BOX if staged else f"На attackbox файлы не попали: {reason}. Не разбирай их по памяти."
+def box_note(items: list[dict], *, staged: bool, reason: str = "", local: bool = False) -> str:
+    if local:
+        where = "Файлы лежат в рабочей папке этой машины. Команды ходят только через Tor или прокси."
+    else:
+        where = _WHERE_BOX if staged else f"На attackbox файлы не попали: {reason}. Не разбирай их по памяти."
     return note(items, where=where)
 
 
