@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     pentest_responsible_name: str = Field(default='', alias='LAYLA_PENTEST_RESPONSIBLE_NAME')
     pentest_employee_identifier: str = Field(default='', alias='LAYLA_PENTEST_EMPLOYEE_IDENTIFIER')
 
+    # Свой ящик для письма подтверждения. Плюс-адрес user+метка@домен приходит в тот же IMAP.
+    # Пусто — остаются публичные одноразовые сервисы, их сайты часто отклоняют.
+    mail_address: str = Field(default='', alias='LAYLA_MAIL_ADDRESS')
+    mail_imap_host: str = Field(default='', alias='LAYLA_MAIL_IMAP_HOST')
+    mail_imap_port: int = Field(default=993, alias='LAYLA_MAIL_IMAP_PORT')
+    mail_imap_user: str = Field(default='', alias='LAYLA_MAIL_IMAP_USER')
+    mail_imap_password: str = Field(default='', alias='LAYLA_MAIL_IMAP_PASSWORD')
+    mail_catchall: bool = Field(default=False, alias='LAYLA_MAIL_CATCHALL')
+
     # Адреса анонимизирующих маршрутов для egress-проб (спец. §7.4).
     tor_addr: str = Field(default="127.0.0.1:9050", alias="LAYLA_TOR_ADDR")
     proxy_addr: str = Field(default="", alias="LAYLA_PROXY_ADDR")

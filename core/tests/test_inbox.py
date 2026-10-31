@@ -151,6 +151,45 @@ async def test_created_mailbox_carries_the_declaration_name(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_own_mailbox_is_used_instead_of_a_disposable_service(monkeypatch):
+    _clean()
+    monkeypatch.setattr(inbox, "_mail_config", lambda: (
+        "pentest@example.com", "imap.example.com", 993, "pentest@example.com", "secret", False))
+    created = await inbox.create_inbox("", "Ivan Petrov")
+    assert created["provider"] == "own" and created["disposable"] is False
+    assert created["address"].startswith("pentest+ivan.petrov.")
+    assert created["domain"] == "example.com"
+    assert created["password"].startswith("own:")
+
+    class Fake:
+        def __init__(self, host, port):
+            assert (host, port) == ("imap.example.com", 993)
+
+        def login(self, user, password):
+            assert (user, password) == ("pentest@example.com", "secret")
+
+        def select(self, box):
+            return "OK", [b"1"]
+
+        def search(self, charset, *criteria):
+            assert created["address"] in criteria[-1]
+            return "OK", [b"5"]
+
+        def fetch(self, number, what):
+            raw = (b"Subject: Confirm\r\nFrom: noreply@target.test\r\n\r\n"
+                   b"Open https://target.test/verify?code=9\r\n")
+            return "OK", [(b"5", raw)]
+
+        def logout(self):
+            return None
+
+    monkeypatch.setattr(inbox.imaplib, "IMAP4_SSL", Fake)
+    letter = await inbox.read_inbox(created["address"], created["password"], "5")
+    assert "verify?code=9" in letter["text"]
+    assert letter["links"] == ["https://target.test/verify?code=9"]
+
+
+@pytest.mark.asyncio
 async def test_read_requires_the_created_password():
     with pytest.raises(ValueError):
         await inbox.read_inbox("person@example.test", "")
