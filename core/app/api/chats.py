@@ -65,6 +65,7 @@ from app.services import (
     code_teams,
     code_workers,
     code_workspace,
+    crew,
     design_gen,
     files,
     history,
@@ -101,6 +102,23 @@ _TOOL_LABELS = {
     "git_diff": "Git: изменения",
     "git_commit": "Git: коммит",
     "git_push": "Git: пуш",
+    "spawn_agent": "Субагент",
+    "list_agents": "Список субагентов",
+    "read_agent": "Отчёт субагента",
+    "wait_agents": "Ожидание субагентов",
+    "stop_agent": "Остановка субагента",
+    "browse_open": "Браузер: открыть",
+    "browse_look": "Браузер: смотреть",
+    "browse_see": "Браузер: картинка",
+    "browse_click": "Браузер: нажать",
+    "browse_type": "Браузер: ввести",
+    "browse_press": "Браузер: клавиша",
+    "browse_select": "Браузер: выбрать",
+    "browse_scroll": "Браузер: прокрутить",
+    "browse_back": "Браузер: назад",
+    "browse_upload": "Браузер: файл",
+    "create_inbox": "Почта: ящик",
+    "read_inbox": "Почта: письмо",
 }
 
 
@@ -165,6 +183,28 @@ async def upload_chat_file(chat_id: str, request: Request, name: str = Query(...
                        meta={"path": item["path"], "size": item["size"]})
     await session.commit()
     return item
+
+
+@router.get("/{chat_id}/crew")
+async def list_crew(chat_id: str, user: User = Depends(get_current_user),
+                    session: AsyncSession = Depends(get_session)) -> list[dict]:
+    chat = await _owned_chat(session, user, chat_id)
+    if chat.domain != Domain.crew:
+        raise HTTPException(status_code=404, detail="Это не чат оркестра")
+    return await crew.snapshot(session, chat.id)
+
+
+@router.post("/{chat_id}/crew/{member_id}/stop")
+async def stop_crew(chat_id: str, member_id: str, user: User = Depends(get_current_user),
+                    session: AsyncSession = Depends(get_session),
+                    maker: async_sessionmaker[AsyncSession] = Depends(get_sessionmaker)) -> dict:
+    chat = await _owned_chat(session, user, chat_id)
+    if chat.domain != Domain.crew:
+        raise HTTPException(status_code=404, detail="Это не чат оркестра")
+    try:
+        return await crew.stop(maker, user.id, chat.id, member_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 async def _worker_manager(session, maker, user, chat_id, *, active=True):
@@ -1159,13 +1199,18 @@ async def run_chat(
                 messages = await transcript.load(messages)
             engine = code_lead.run if runtime is not None else project_agent.run
             ops = agent_ops.Ops(maker, owner_id, list(chat.server_ids or [])) if domain == "agent" else None
+            crew_lead = crew.Manager(
+                maker, owner_id, chat_id, project_id, root, provider_id=prov.id, model=model,
+                caps=caps, mode=mode, permissions=permissions,
+            ) if domain == "crew" else None
             async with aclosing(engine(prov, key, model, messages, root, permissions,
                                                  mode=mode, approve=approve, caps=caps, extra=extra,
                                                  runner=runner, git=git, mcp=mcp, runtime=runtime, workers=workers,
                                                  lsp=code_lsp.Client(owner_id, project_id, root) if domain == "code" else None,
                                                  workflow=code_hooks.Runtime(runner, permissions, mode=mode,
                                                                              session_id=chat_id) if domain == "code" else None,
-                                                 transcript=transcript, ops=ops, **({"job_id": h.job.id} if runtime else {}))) as stream:
+                                                 transcript=transcript, ops=ops, crew=crew_lead,
+                                                 **({"job_id": h.job.id} if runtime else {}))) as stream:
                 async for event in stream:
                     if "workspace" in event:
                         # A control notification must not consume the first

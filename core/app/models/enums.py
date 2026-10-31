@@ -10,6 +10,7 @@ class Domain(str, enum.Enum):
     osint = "osint"
     design = "design"
     agent = "agent"
+    crew = "crew"
 
 
 class ProviderKind(str, enum.Enum):

@@ -6,7 +6,7 @@ import { Folder, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { api, type TrashList } from "@/lib/api";
 import { confirmAction } from "@/components/ConfirmDialog";
 
-const DOMAINS: Record<string, string> = { code: "Код", design: "Дизайн", osint: "OSINT", pentest: "Пентест" };
+const DOMAINS: Record<string, string> = { code: "Код", design: "Дизайн", osint: "OSINT", pentest: "Пентест", agent: "Агент", crew: "Оркестр" };
 
 function when(value: string) {
   const date = new Date(/[Z+]/.test(value.slice(10)) ? value : value + "Z");

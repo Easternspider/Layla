@@ -11,6 +11,7 @@ from app.models.code_team import CodeTeam, CodeTeamMessage, CodeTranscript
 from app.models.code_worker import CodeWorker
 from app.models.code_workspace import CodeWorkspace, CodeWorkspaceCheckpoint
 from app.models.combo import Combo
+from app.models.crew import CrewMember
 from app.models.design import Design
 from app.models.git import GitCredential
 from app.models.codex_login import CodexLogin
@@ -57,6 +58,7 @@ __all__ = [
     "CodeWorkspaceCheckpoint",
     "CodexLogin",
     "Combo",
+    "CrewMember",
     "Design",
     "Engagement",
     "EngagementRecord",

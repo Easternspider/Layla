@@ -20,7 +20,7 @@ from app.security import crypto
 from app.security.jwt import COOKIE_NAME, create_session_token
 from app.services import telegram
 
-DOMAINS = {"code": "Код", "pentest": "Пентест", "osint": "OSINT", "design": "Дизайн", "agent": "Агент"}
+DOMAINS = {"code": "Код", "pentest": "Пентест", "osint": "OSINT", "design": "Дизайн", "agent": "Агент", "crew": "Оркестр"}
 HELP = """Лейла — управление агентом
 /menu — панель управления
 /domains — разделы
@@ -148,9 +148,9 @@ class Panel:
         await self.reply("Выберите раздел", [[self.button(label, "domain", domain=key)] for key, label in DOMAINS.items()])
 
     async def targets(self, page=0):
-        if self.domain == "agent":
-            rows = await self.call("GET", "/chats?domain=agent")
-            items = [(row.get("title") or "Чат", {"id": row["id"], "domain": "agent"}) for row in rows]
+        if self.domain in ("agent", "crew"):
+            rows = await self.call("GET", "/chats?domain=" + self.domain)
+            items = [(row.get("title") or "Чат", {"id": row["id"], "domain": self.domain}) for row in rows]
             await self.choose("Выберите задачу", items, "target", page, kind="targets")
             return
         path = {"code": "/projects", "pentest": "/engagements", "osint": "/osint/cases", "design": "/designs"}[self.domain]
@@ -166,7 +166,7 @@ class Panel:
     async def select_target(self, id, domain):
         if domain != self.domain:
             raise RuntimeError("Сначала выберите соответствующий раздел")
-        if domain == "agent":
+        if domain in ("agent", "crew"):
             chat = await self.call("GET", "/chats/" + id)
             self.state.update(target_id=id, target_name=chat.get("title") or "Чат", chat_id=id)
             await self.menu()
@@ -247,7 +247,7 @@ class Panel:
 
     async def new_target(self):
         self.state["input"] = "new_target"
-        if self.domain == "agent":
+        if self.domain in ("agent", "crew"):
             self.state.pop("input", None)
             await self.reply("Задача агента — это чат. Нажмите «Новый чат / запуск».")
             return
