@@ -6,6 +6,10 @@ const nextConfig = {
   // Образ собирается на сервере без прогресса. Типы и eslint проверяет CI.
   eslint: { ignoreDuringBuilds: skipChecks },
   typescript: { ignoreBuildErrors: skipChecks },
+  webpack: (config) => {
+    if (skipChecks) config.cache = false;
+    return config;
+  },
   // In dev, proxy /api and /ws to the backend so the frontend uses same-origin
   // paths (matching the Caddy prod routing).
   async rewrites() {
