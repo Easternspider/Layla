@@ -247,16 +247,19 @@ async def launch_batch(
         from app.api.agent import agent_chat
         from app.schemas.agent import AgentChatCreate
         note = " ".join((body.instruction or "").split())
-        extra = (f"\n\nОбщая инструкция оператора для всех целей этого запуска. "
-                 f"Она не расширяет scope и не отменяет площадку:\n{note}") if note else ""
         for engagement in created:
+            if note:
+                task = (f"Задача оператора для {engagement.target}: {note}\n"
+                        "Это и есть задание. Не расширяй его до полного пентеста и не выходи за scope этой цели. "
+                        "Площадка и наступательные действия уже включены.")
+            else:
+                task = (f"Проведи авторизованный пентест {engagement.target}. "
+                        "Scope этого engagement уже подтверждён и относится только к этой цели. "
+                        "Площадка — выбранный attackbox, наступательные действия включены. "
+                        "Начни с разведки и доводи признаки до доказанного влияния.")
             try:
                 await agent_chat(engagement.id, AgentChatCreate(
-                    content=(f"Проведи авторизованный пентест {engagement.target}. "
-                             "Scope этого engagement уже подтверждён и относится только к этой цели. "
-                             "Площадка — выбранный attackbox, наступательные действия включены. "
-                             "Начни с разведки и доводи признаки до доказанного влияния."
-                             f"{extra}")[:20000],
+                    content=task[:20000],
                     mode="auto",
                     model=(body.model or "").strip() or None,
                     provider_id=(body.provider_id or "").strip() or None), user, session, maker)
