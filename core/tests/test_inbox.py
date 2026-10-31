@@ -1,4 +1,6 @@
 """mail.tm inbox used only to receive a registration letter."""
+import json
+
 import httpx
 import pytest
 
@@ -116,6 +118,36 @@ async def test_rejected_domain_is_not_issued_again(monkeypatch):
     assert "maxxspace.com" in inbox._STORE.read_text()
     with pytest.raises(ValueError):
         await inbox.create_inbox()
+
+
+def test_mailbox_local_uses_the_declaration_name():
+    assert inbox.mailbox_local("Ivan Petrov").startswith("ivan.petrov.")
+    assert "layla" not in inbox.mailbox_local("Layla")
+    assert inbox.mailbox_local("Лейла").startswith("user.")
+
+
+@pytest.mark.asyncio
+async def test_created_mailbox_carries_the_declaration_name(monkeypatch):
+    def serve(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/domains":
+            return httpx.Response(200, json={"hydra:member": [{"domain": "example.test", "isActive": True}]})
+        if request.url.path == "/accounts":
+            body = json.loads(request.content)
+            assert "layla" not in body["address"]
+            assert body["address"].startswith("ivan.petrov.")
+            return httpx.Response(201, json={})
+        if request.url.path == "/token":
+            return httpx.Response(200, json={"token": "fixture-token"})
+        return httpx.Response(404)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    _clean()
+    created = await inbox.create_inbox("", "Ivan Petrov")
+    assert created["address"].startswith("ivan.petrov.")
+    assert created["display_name"] == "Ivan Petrov"
+    assert created["given_name"] == "Ivan" and created["family_name"] == "Petrov"
+    assert "layla" not in created["address"]
 
 
 @pytest.mark.asyncio
