@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_session
+from app.db import get_session, get_sessionmaker
 from app.models.agent import AgentConfig, AgentRun, AgentStep
-from app.models.enums import Severity, VenueMode
+from app.models.enums import EgressRoute, Severity, VenueMode
 from app.models.pentest import Engagement, Finding, Scope, Server, Venue
 from app.models.user import User
 from app.schemas.pentest import (
+    EngagementBatch,
+    EngagementBatchOut,
     EngagementCreate,
     EngagementBoardItem,
     EngagementOut,
@@ -166,6 +168,97 @@ async def create_engagement(
     await audit.record(session, actor=user.id, action="engagement.create", target=body.target)
     await session.commit()
     return await _to_out(session, e)
+
+
+def _batch_targets(raw: list[str]) -> list[str]:
+    seen: list[str] = []
+    for item in raw:
+        for part in item.replace(",", "\n").splitlines():
+            value = part.strip()
+            if value and value not in seen:
+                seen.append(value[:500])
+    if not seen:
+        raise HTTPException(422, "Укажите хотя бы одну цель")
+    if len(seen) > 20:
+        raise HTTPException(422, "За один запуск не больше 20 целей")
+    bad = [target for target in seen if not scope_svc.initial_allow(target)]
+    if bad:
+        raise HTTPException(422, "Некорректные цели: " + ", ".join(bad[:8]))
+    return seen
+
+
+async def _operator_identity(session, user: User) -> dict:
+    values = await authorization.defaults(session, user.id)
+    company = (values.get("company") or "").strip() or "Оператор Layla"
+    responsible = (values.get("responsible_name") or user.display_name or user.email).strip()
+    employee = (values.get("employee_identifier") or user.email).strip()
+    return {"company": company[:200], "responsible_name": responsible[:300], "employee_identifier": employee[:200]}
+
+
+async def _arm(session, user: User, engagement: Engagement, server: Server) -> None:
+    """Подтверждает scope этой цели, принимает декларацию и включает наступление на выбранном attackbox."""
+    sc = await _scope(session, engagement.id)
+    if sc is None or not sc.allow:
+        raise HTTPException(422, f"Для {engagement.target} не собрался scope")
+    sc.confirmed = True
+    document = await authorization.latest(session, engagement.id)
+    if document is None or document.status not in ("draft", "accepted"):
+        document = await authorization.create(session, engagement, await _operator_identity(session, user))
+    await authorization.accept(session, engagement, document)
+    engagement.offensive_enabled = True
+    vn = await _venue(session, engagement.id)
+    if vn is None:
+        vn = Venue(engagement_id=engagement.id)
+        session.add(vn)
+    vn.mode = VenueMode.attack_box
+    vn.attack_box_id = server.id
+    vn.egress_route = server.egress_route or EgressRoute.direct
+    await audit.record(session, actor=user.id, action="engagement.batch.arm", target=engagement.id,
+                       meta={"target": engagement.target, "attack_box_id": server.id, "allow": sc.allow})
+
+
+@router.post("/batch", response_model=EngagementBatchOut, status_code=201)
+async def launch_batch(
+    body: EngagementBatch,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    maker=Depends(get_sessionmaker),
+) -> EngagementBatchOut:
+    """Несколько целей разом: у каждой свой engagement и scope, одна выбранная площадка."""
+    targets = _batch_targets(body.targets)
+    server = await session.get(Server, body.attack_box_id)
+    if server is None or server.owner_id != user.id:
+        raise HTTPException(404, "Attack box не найден")
+    created: list[Engagement] = []
+    for target in targets:
+        engagement = Engagement(owner_id=user.id, target=target, workspace_id=None)
+        session.add(engagement)
+        await session.flush()
+        from app.services.pentest_setup import initialize
+        await initialize(session, engagement)
+        await _arm(session, user, engagement, server)
+        await audit.record(session, actor=user.id, action="engagement.create", target=target)
+        created.append(engagement)
+    await session.commit()
+    outs = [await _to_out(session, engagement) for engagement in created]
+    started: list[str] = []
+    errors: list[str] = []
+    if body.start:
+        from app.api.agent import agent_chat
+        from app.schemas.agent import AgentChatCreate
+        for engagement in created:
+            try:
+                await agent_chat(engagement.id, AgentChatCreate(
+                    content=(f"Проведи авторизованный пентест {engagement.target}. "
+                             "Scope этого engagement уже подтверждён и относится только к этой цели. "
+                             "Площадка — выбранный attackbox, наступательные действия включены. "
+                             "Начни с разведки и доводи признаки до доказанного влияния."),
+                    mode="auto"), user, session, maker)
+                started.append(engagement.id)
+            except HTTPException as exc:
+                errors.append(f"{engagement.target}: {exc.detail}")
+                await session.rollback()
+    return EngagementBatchOut(engagements=outs, started=started, errors=errors)
 
 
 async def _write_owned(session, user, eid):
