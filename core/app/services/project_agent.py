@@ -483,7 +483,7 @@ def _tokens(message: dict) -> int:
 def fit_context(conversation: list[dict], anchor: dict, caps: dict) -> int:
     """Убрать старую историю, если она не влезает в контекст модели (caps["context"]).
 
-    Системные сообщения и всё начиная с текущего запроса пользователя (anchor) не
+    Системные сообщения, текущий запрос и две последние реплики до него не
     трогаем; удаляем самые старые реплики. Возвращает число пропущенных сообщений.
     """
     limit = caps.get("context")
@@ -497,6 +497,10 @@ def fit_context(conversation: list[dict], anchor: dict, caps: dict) -> int:
     def oldest() -> int | None:
         stop = next(i for i, m in enumerate(conversation) if m is anchor)
         return next((i for i in range(stop) if conversation[i]["role"] != "system"), None)
+
+    def before_anchor() -> list[int]:
+        stop = next(i for i, m in enumerate(conversation) if m is anchor)
+        return [i for i in range(stop) if conversation[i]["role"] != "system"]
 
     def erase(index):
         indices = [index]
@@ -513,13 +517,15 @@ def fit_context(conversation: list[dict], anchor: dict, caps: dict) -> int:
         return len(indices)
 
     while sum(_tokens(m) for m in conversation) > budget:
+        if len(before_anchor()) <= 2:
+            break
         index = oldest()
         if index is None:
             break
         removed += erase(index)
         # История не должна начинаться с ответа ассистента (Anthropic такое отклоняет).
         index = oldest()
-        while index is not None and conversation[index]["role"] in ("assistant", "tool"):
+        while index is not None and conversation[index]["role"] in ("assistant", "tool") and len(before_anchor()) > 2:
             removed += erase(index)
             index = oldest()
     return removed
