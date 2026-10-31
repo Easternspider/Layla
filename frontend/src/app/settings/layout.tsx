@@ -3,13 +3,13 @@
 import { useAuth } from "@/store/auth";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Settings2, Palette, Cable, Bot, Users, BookOpen, ShieldCheck, Plug, Code2, Database, FlaskConical, Network, Trash2, SquareTerminal, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Settings2, Palette, Cable, Bot, Users, BookOpen, ShieldCheck, Plug, Code2, Database, FlaskConical, Network, Trash2, SquareTerminal, CircleHelp, type LucideIcon } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { SETTINGS_SECTIONS } from "@/lib/settings-nav";
 import { useLocale } from "@/store/locale";
 
 const icons: Record<string, LucideIcon> = {
-  general: Settings2, users: Users, appearance: Palette, providers: Cable, agent: Bot, personas: Users,
+  general: Settings2, guide: CircleHelp, users: Users, appearance: Palette, providers: Cable, agent: Bot, personas: Users,
   sandbox: SquareTerminal, knowledge: BookOpen, security: ShieldCheck, integrations: Plug, "local-api": Code2,
   data: Database, "accounts-lab": FlaskConical, "privacy-chain": Network, trash: Trash2,
 };
