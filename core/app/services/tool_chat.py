@@ -66,6 +66,26 @@ def _mark_cache(messages: list[dict]) -> None:
         last["content"] = [{"type": "text", "text": last["content"], "cache_control": {"type": "ephemeral"}}]
 
 
+def _content_blocks(content) -> list[dict]:
+    if isinstance(content, list):
+        blocks = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text" and part.get("text"):
+                blocks.append({"type": "text", "text": part["text"]})
+            elif part.get("type") == "image_url":
+                url = (part.get("image_url") or {}).get("url") or ""
+                header, _, data = url.partition(",")
+                if url.startswith("data:") and data:
+                    mime = header[5:].split(";", 1)[0] or "image/png"
+                    blocks.append({"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}})
+        return blocks
+    if content:
+        return [{"type": "text", "text": content}]
+    return []
+
+
 def anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
     system = "\n".join(m["content"] for m in messages if m["role"] == "system")
     converted = []
@@ -87,7 +107,7 @@ def anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
         else:
             blocks.extend(message.get("_anthropic_thinking", []))
             if message.get("content"):
-                blocks.append({"type": "text", "text": message["content"]})
+                blocks.extend(_content_blocks(message["content"]))
             for call in message.get("tool_calls", []):
                 blocks.append(
                     {

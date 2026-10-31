@@ -116,6 +116,36 @@ async def test_code_research_maps_public_tools(monkeypatch):
     assert (await code_research.execute("web_fetch", {"url": "https://example.com/docs"}))["url"].endswith("/docs")
 
 
+async def test_view_image_shows_a_project_file(tmp_path):
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+        "890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+    )
+    (tmp_path / "shot.png").write_bytes(png)
+    seen = await code_research.execute("view_image", {"path": "shot.png"}, str(tmp_path))
+    assert seen["mime"] == "image/png" and seen["bytes"] == len(png)
+    assert seen["_image"].startswith("data:image/png;base64,")
+    try:
+        await code_research.execute("view_image", {"path": "shot.png", "url": "https://example.com/a.png"}, str(tmp_path))
+    except ValueError as exc:
+        assert "либо" in str(exc)
+    else:
+        raise AssertionError("both path and url should be rejected")
+
+
+def test_anthropic_messages_carry_an_image():
+    from app.services.tool_chat import anthropic_messages
+    _system, messages = anthropic_messages([
+        {"role": "user", "content": [
+            {"type": "text", "text": "look"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,aaaa"}},
+        ]},
+    ])
+    kinds = [block["type"] for block in messages[0]["content"]]
+    assert kinds == ["text", "image"]
+    assert messages[0]["content"][1]["source"]["media_type"] == "image/png"
+
+
 async def test_mcp_tools_are_namespaced_and_called(monkeypatch):
     server = SimpleNamespace(name="Docs server", transport=SimpleNamespace(value="http"),
                              command=None, url="https://mcp.example", env_secret_ref=None)

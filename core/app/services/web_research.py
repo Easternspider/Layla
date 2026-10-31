@@ -199,6 +199,27 @@ async def fetch(url: str, blocked: list[str] = (), *, max_bytes: int = MAX_BYTES
     raise ValueError('Слишком много перенаправлений источника')
 
 
+async def fetch_bytes(url: str, blocked: list[str] = (), max_bytes: int = 1_500_000) -> tuple[str, bytes, str]:
+    """Public HTTPS body as bytes. Images must not pass through the text decoder."""
+    async with asyncio.timeout(30):
+        for _ in range(4):
+            target, host = validate_url(url, blocked)
+            addresses = await public_addresses(host)
+            if any(check_target(a, list(blocked), []).allowed for a in addresses):
+                raise ValueError('Адрес источника совпадает с целью engagement')
+            status, content_type, body, headers = await perform(str(target), host, addresses[0], max_bytes)
+            if status in (301, 302, 303, 307, 308):
+                location = headers.get('location')
+                if not location:
+                    raise ValueError('Источник вернул redirect без адреса')
+                url = urljoin(str(target), location)
+                continue
+            if status != 200:
+                raise ValueError(f'Источник ответил {status}')
+            return str(target), body, content_type
+    raise ValueError('Слишком много перенаправлений источника')
+
+
 def _interstitial(text: str) -> bool:
     sample = text[:5000]
     return any(mark in sample for mark in (
