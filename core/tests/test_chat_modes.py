@@ -81,7 +81,7 @@ async def test_plan_mode_offers_only_read_tools(client, monkeypatch):
     # План — только чтение: файлы и git без коммита/пуша.
     assert seen[0]["tools"] == {
         "list_files", "read_file", "update_todos", "glob_files", "grep_files", "repo_map",
-        "list_skills", "read_skill", "web_search", "web_fetch", "github_search",
+        "list_skills", "read_skill", "web_search", "web_fetch", "view_image", "github_search",
         "git_status", "git_log", "git_diff", "git_conflicts",
         "browse_open", "browse_look", "browse_see", "browse_scroll", "browse_back",
         "list_agents", "read_agent", "wait_agents",

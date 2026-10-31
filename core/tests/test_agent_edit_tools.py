@@ -65,7 +65,7 @@ def test_edit_tools_need_write_permission():
 
     assert names(["files.read"]) == {
         "list_files", "read_file", "update_todos", "glob_files", "grep_files", "repo_map",
-        "list_skills", "read_skill", "delegate_agent", "web_search", "web_fetch", "github_search",
+        "list_skills", "read_skill", "delegate_agent", "web_search", "web_fetch", "view_image", "github_search",
     }
     assert {"edit_file", "append_file"} <= names(["files.read", "files.write"])
     assert {"edit_file", "append_file"} <= project_agent.MUTATING  # в режиме «План» их нет
