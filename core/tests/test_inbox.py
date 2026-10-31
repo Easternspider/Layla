@@ -151,6 +151,35 @@ async def test_created_mailbox_carries_the_declaration_name(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_gmail_address_is_created_without_an_operator_mailbox(monkeypatch):
+    _clean()
+
+    def serve(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "www.emailnator.com":
+            return httpx.Response(503)
+        if request.method == "GET":
+            return httpx.Response(200, text="ok", headers={"set-cookie": "XSRF-TOKEN=tok%3D; Path=/"})
+        body = json.loads(request.content)
+        if isinstance(body.get("email"), list):
+            return httpx.Response(200, json={"email": ["ivan.petrov.ab@gmail.com"]})
+        if body.get("messageID"):
+            return httpx.Response(200, json={"content": "Open https://target.test/verify?code=3", "subject": "Confirm"})
+        return httpx.Response(200, json={"messageData": [{"messageID": "m9", "from": "noreply@target.test", "subject": "Confirm"}]})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(serve), **kwargs))
+    created = await inbox.create_inbox("", "Ivan Petrov")
+    assert created["provider"] == "gmail" and created["disposable"] is False
+    assert created["address"] == "ivan.petrov.ab@gmail.com"
+    assert created["password"] == "gmail"
+    assert "gmail.com" not in (inbox._STORE.read_text() if inbox._STORE.exists() else "")
+    listed = await inbox.read_inbox(created["address"], created["password"])
+    assert listed["messages"][0]["id"] == "m9"
+    letter = await inbox.read_inbox(created["address"], created["password"], "m9")
+    assert letter["links"] == ["https://target.test/verify?code=3"]
+
+
+@pytest.mark.asyncio
 async def test_own_mailbox_is_used_instead_of_a_disposable_service(monkeypatch):
     _clean()
     monkeypatch.setattr(inbox, "_mail_config", lambda: (
