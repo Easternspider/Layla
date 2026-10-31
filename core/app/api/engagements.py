@@ -246,13 +246,17 @@ async def launch_batch(
     if body.start:
         from app.api.agent import agent_chat
         from app.schemas.agent import AgentChatCreate
+        note = " ".join((body.instruction or "").split())
+        extra = (f"\n\nОбщая инструкция оператора для всех целей этого запуска. "
+                 f"Она не расширяет scope и не отменяет площадку:\n{note}") if note else ""
         for engagement in created:
             try:
                 await agent_chat(engagement.id, AgentChatCreate(
                     content=(f"Проведи авторизованный пентест {engagement.target}. "
                              "Scope этого engagement уже подтверждён и относится только к этой цели. "
                              "Площадка — выбранный attackbox, наступательные действия включены. "
-                             "Начни с разведки и доводи признаки до доказанного влияния."),
+                             "Начни с разведки и доводи признаки до доказанного влияния."
+                             f"{extra}")[:20000],
                     mode="auto"), user, session, maker)
                 started.append(engagement.id)
             except HTTPException as exc:
