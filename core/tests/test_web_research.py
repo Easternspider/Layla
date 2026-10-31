@@ -402,3 +402,17 @@ async def test_interstitial_waits_for_the_operator(monkeypatch):
     monkeypatch.setattr(web_research, 'present_challenge', present)
     result = await web_research.read_web_page('https://vendor.example/security')
     assert 'Advisory body' in result['text']
+
+
+@pytest.mark.asyncio
+async def test_page_failure_does_not_claim_a_cve_is_missing(monkeypatch):
+    async def boom(url, blocked=(), **kwargs):
+        raise OSError('network down')
+
+    monkeypatch.setattr(web_research, 'fetch', boom)
+    page = await web_research.source('https://example.com/docs')
+    assert page['status'] == 'unavailable'
+    assert 'CVE' not in page['error']
+    record = await web_research.source('https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-1', nvd=True)
+    assert 'существование CVE не установлено' in record['error']
+

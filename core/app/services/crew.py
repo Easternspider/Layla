@@ -21,7 +21,7 @@ from app.services import jobs, provider_client
 
 ACTIVE = frozenset({"queued", "running"})
 ROLES = ("research", "review", "build")
-NOTE = """Ты ведущий и работаешь как человек за компьютером в любом домене: сам открываешь сайты, читаешь экран, смотришь картинки, заполняешь формы и только потом отвечаешь.
+NOTE = """Ты ведущий этого чата и работаешь как человек за компьютером только в своём разделе. Цели engagement, поиск IP, сканирование и проверка чужого приложения — это Пентест: не открывай такой адрес и не ищи его, а скажи открыть раздел Пентест.
 Браузер один на весь чат, куки сохраняются между сообщениями. Сначала browse_open. Потом browse_look: текст, кнопки, поля и картинки. Не выдумывай содержимое страницы. Перед важным действием смотри browse_see — это описание экрана или картинки по ссылке.
 Дальше действуй как человек: в items у каждого элемента есть номер n. browse_click и browse_type вызывай с этим номером, например 3, или с видимым текстом. Не выдумывай css:a:nth-of-type: это не «третья ссылка». browse_press, browse_select, browse_scroll, browse_back. Файл из рабочей папки прикладывай browse_upload. Если страница показывает капчу, вызови browse_captcha: он сам смотрит картинку и вводит символы, нажимает галочку или клетки. Не проси пользователя решить её, пока сам не попробовал.
 Для регистрации сам создай ящик create_inbox и дождись письма read_inbox. Не проси почту у пользователя, если ящик можно создать.
@@ -277,6 +277,15 @@ class Manager:
 
     async def execute(self, name: str, arguments: dict) -> dict:
         args = SCHEMAS[name].model_validate(arguments or {})
+        from app.services import domain_fence
+        blocked = await domain_fence.refusal(
+            str(getattr(args, "url", "") or ""),
+            str(getattr(args, "task", "") or ""),
+            str(getattr(args, "target", "") or ""),
+            maker=self.maker, owner_id=self.owner_id,
+        )
+        if blocked:
+            return {"error": blocked}
         if name in LOOK_ONLY or name in BROWSER_ACTIONS or name in {"create_inbox", "read_inbox"}:
             return await self._human(name, args)
         if name == "spawn_agent":
@@ -348,10 +357,14 @@ class Manager:
             job_id = str(uuid4())
             try:
                 async with self.maker() as session:
+                    from app.models.chat import Chat
+                    chat = await session.get(Chat, self.chat_id)
+                    raw = chat.domain.value if chat is not None and hasattr(chat.domain, "value") else "agent"
+                    domain = "agent" if raw == "crew" else raw
                     session.add(Job(
-                        id=job_id, owner_id=self.owner_id, domain="crew", kind="crew.member",
+                        id=job_id, owner_id=self.owner_id, domain=domain, kind="crew.member",
                         title=f"{args.role}: {args.task}"[:200], status="queued",
-                        result={"crew_chat_id": self.chat_id, "member_id": member_id},
+                        result={"crew_chat_id": self.chat_id, "chat_id": self.chat_id, "member_id": member_id},
                     ))
                     await session.flush()
                     row = CrewMember(
@@ -422,6 +435,14 @@ class Manager:
         self.attached.clear()
 
     async def _execute(self, member_id: str, handle) -> None:
+        from app.services import domain_fence
+        token = domain_fence.bind(self.maker, self.owner_id)
+        try:
+            await self._run_member_job(member_id, handle)
+        finally:
+            domain_fence.reset(token)
+
+    async def _run_member_job(self, member_id: str, handle) -> None:
         async with self.maker() as session:
             row = await session.get(CrewMember, member_id)
             if row is None or row.status not in ACTIVE:

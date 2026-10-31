@@ -1122,6 +1122,8 @@ async def run_chat(
         raise
 
     async def worker(h: jobs.JobHandle) -> None:
+        from app.services import domain_fence
+        fence = domain_fence.bind(maker, owner_id)
         full: list[str] = []
         reasoning: list[str] = []
         tools: dict[str, dict] = {}
@@ -1148,6 +1150,11 @@ async def run_chat(
             last_persist = time.monotonic()
 
         try:
+            blocked = await domain_fence.refusal(body.content)
+            if blocked:
+                full.append(blocked)
+                await h.step("Это задача раздела Пентест", progress=1.0)
+                return
             prov = await h.session.get(Provider, provider_id)
             if prov is None or not prov.enabled or not prov.active:
                 raise RuntimeError("Провайдер отключён или удалён. Выберите другую модель.")
@@ -1316,7 +1323,10 @@ async def run_chat(
                     # change у pending — это лишь превью, оно не было применено.
                     cleaned = {k: v for k, v in tool.items() if k != "change"}
                     tools[tool_id] = {**cleaned, "status": "error", "error": error or "Вызов прерван"}
-            await persist()
+            try:
+                await persist()
+            finally:
+                domain_fence.reset(fence)
 
     jobs.launch(maker, job.id, worker)
     return job

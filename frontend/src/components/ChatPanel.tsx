@@ -535,7 +535,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         <textarea aria-label="Сообщение агенту" rows={3} value={input} onChange={e => { setInput(e.target.value); remember(`${scope}:draft:${chatId || "new"}`, e.target.value); }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} placeholder={running ? "Задача выполняется. Для другой задачи создайте новый чат." : mode === "plan" ? "Опишите задачу — агент предложит план…" : "Опишите задачу…"} className="min-w-0 flex-1 resize-none bg-transparent p-2 text-sm outline-none" />
         <button aria-label="Отправить" onClick={() => send()} disabled={(!input.trim() && !files.length) || running || sending || loading || !ready} className="primary-button h-11 w-11 shrink-0 !p-0">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
       </div>
-      <p className="px-2 pt-2 text-[11px] text-neutral-500">{MODES.find(m => m.id === mode)?.hint}. Можно приложить файлы любого формата, включая zip: агент разберёт их и при необходимости скачает инструмент. Работа продолжается в фоне.</p>
+      <p className="px-2 pt-2 text-[11px] text-neutral-500">{MODES.find(m => m.id === mode)?.hint}. Можно приложить файлы любого формата, включая zip: агент разберёт их и при необходимости скачает инструмент. Адреса из раздела Пентест здесь не открываются. Работа продолжается в фоне.</p>
     </div>
   </div>;
 }

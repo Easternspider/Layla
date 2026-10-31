@@ -216,8 +216,10 @@ async def source(url: str, blocked: list[str] = (), *, nvd: bool = False, max_by
         else:
             result = await fetch(url, blocked, **extra)
     except (httpx.HTTPError, OSError, TimeoutError, ValueError) as exc:
-        return {'url': url, 'status': 'unavailable', 'checked_at': now(),
-                'error': f'{type(exc).__name__}: источник недоступен; существование CVE не установлено'}
+        detail = f'{type(exc).__name__}: источник недоступен'
+        if nvd:
+            detail += '; существование CVE не установлено'
+        return {'url': url, 'status': 'unavailable', 'checked_at': now(), 'error': detail}
     if result['http_status'] == 200:
         if len(_cache) >= 64:
             _cache.pop(next(iter(_cache)))

@@ -23,7 +23,8 @@ async def test_switch_blocks_already_planned_step(client, monkeypatch):
     assert 'выключены' in result['output']
     await client.put(f'/api/engagements/{eid}/offensive', json={'enabled': True})
     result = (await client.post(f"/api/agent/steps/{step['id']}/approve")).json()
-    assert 'исполнитель' in result['output'].lower()
+    assert result['status'] == 'blocked'
+    assert 'tor' in result['output'].lower() or 'прокси' in result['output'].lower()
 
 
 @pytest.mark.asyncio

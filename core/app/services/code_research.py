@@ -35,6 +35,10 @@ TOOLS = [
 
 async def execute(name: str, arguments: dict) -> dict:
     args = SCHEMAS[name].model_validate(arguments)
+    from app.services import domain_fence
+    blocked = await domain_fence.refusal(getattr(args, "url", ""), getattr(args, "query", ""))
+    if blocked:
+        return {"error": blocked}
     if name == "web_search":
         return await web_research.search_web(args.query)
     if name == "web_fetch":
