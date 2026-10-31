@@ -16,6 +16,11 @@ RUN apt-get update \
 RUN pip install --no-cache-dir 'playwright>=1.49' \
     && playwright install --with-deps chromium
 
+# «Эта машина» выполняет команды агента здесь. curl обещан протоколом и нужен для запросов к цели.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir .
 
