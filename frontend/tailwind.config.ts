@@ -5,7 +5,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-onest)", "Onest", "system-ui", "sans-serif"],
+        sans: ["Onest", "system-ui", "sans-serif"],
         mono: ['"SFMono-Regular"', "Consolas", '"Liberation Mono"', "monospace"],
       },
       colors: {
