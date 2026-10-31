@@ -385,7 +385,10 @@ PREVIEW_NOTE = (
 GIT_NOTE = (
     "\nGit: inspect with git_status / git_log / git_diff. For requested publication, commit changes, "
     "git_sync, repair conflicts using git_conflicts / file tools / git_resolve, finish git_commit, "
-    "verify and git_push. Preserve both sides' intended behavior. Follow chat mode: Auto requires no "
+    "verify and git_push. If there is no remote, call git_remote yourself: pass an https URL, or omit "
+    "it to create a GitHub repository with the saved token, then git_push. Never paste terminal "
+    "commands such as git remote add or git push for the user; they do not run against this project. "
+    "Preserve both sides' intended behavior. Follow chat mode: Auto requires no "
     "extra confirmation; Confirm asks before mutations. Don't publish unrelated or unfinished work."
 )
 NO_RUN_NOTE = (

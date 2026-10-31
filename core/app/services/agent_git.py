@@ -7,8 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services import gitops
 
-GIT_TOOLS = frozenset({"git_status", "git_log", "git_diff", "git_commit", "git_push", "git_sync", "git_conflicts", "git_resolve"})
-GIT_MUTATING = frozenset({"git_commit", "git_push", "git_sync", "git_resolve"})
+GIT_TOOLS = frozenset({"git_status", "git_log", "git_diff", "git_commit", "git_push", "git_sync",
+                       "git_conflicts", "git_resolve", "git_remote"})
+GIT_MUTATING = frozenset({"git_commit", "git_push", "git_sync", "git_resolve", "git_remote"})
 ALWAYS_ASK = frozenset()
 GIT_PERMISSION = "repo.git"
 MODEL_DIFF = 12_000
@@ -40,8 +41,15 @@ class GitConflicts(_NoArgs):
     path: str | None = Field(default=None, max_length=4096)
 
 
+class GitRemote(_NoArgs):
+    url: str = Field(default="", max_length=1000)
+    name: str = Field(default="", max_length=100)
+    private: bool = True
+
+
 _SCHEMAS = {"git_status": _NoArgs, "git_log": GitLog, "git_diff": _NoArgs, "git_commit": GitCommit,
-            "git_push": GitPush, "git_sync": GitPush, "git_conflicts": GitConflicts, "git_resolve": GitResolve}
+            "git_push": GitPush, "git_sync": GitPush, "git_conflicts": GitConflicts, "git_resolve": GitResolve,
+            "git_remote": GitRemote}
 _DESCRIPTIONS = {
     "git_status": "Git state of this project: branch, uncommitted changes, remote, ahead/behind, last commit.",
     "git_log": "Recent commits of this project (newest first).",
@@ -61,6 +69,10 @@ _DESCRIPTIONS = {
     "git_resolve": "Stage a repaired conflict file, using its current SHA-256 from read_file. "
                    "All conflict markers must be removed. For an intentional deletion first delete_file "
                    "then call with delete=true. Finish all files and git_commit to complete the merge.",
+    "git_remote": "Attach this project's origin. Pass an existing https URL, or omit url to create a "
+                  "GitHub repository with the token saved in Код → Git (name defaults to the project "
+                  "folder, private defaults to true) and attach it. Then git_commit if needed and git_push. "
+                  "Never tell the user to run git remote or git push in a terminal.",
 }
 
 
@@ -136,6 +148,18 @@ class GitAgent:
                 username, token = await self.credential(remote)
                 done = await gitops.push(self.root, token, username, args.branch, self.author, self.email)
                 return {"branch": done["branch"], "output": done["output"][-1500:]}
+            if name == "git_remote":
+                from pathlib import Path
+                if not gitops.is_repo(self.root):
+                    await gitops.init(self.root)
+                if args.url:
+                    return await gitops.set_remote(self.root, args.url)
+                _, token = await self.credential("https://github.com/")
+                if not token:
+                    return {"error": "В Код → Git нет токена github.com. Добавьте его, и я создам репозиторий и отправлю код."}
+                created = await gitops.create_github_repo(token, args.name or Path(self.root).name, args.private)
+                state = await gitops.set_remote(self.root, created["clone_url"])
+                return {**state, "created": created["created"], "html_url": created["html_url"]}
         except gitops.GitError as exc:
             return {"error": str(exc)}
         return {"error": "Неизвестный инструмент"}

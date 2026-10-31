@@ -5,6 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.services import agent_git, gitops, project_agent
@@ -84,6 +85,47 @@ async def test_remote_validation_and_token_stays_out_of_arguments(tmp_path, monk
     # Токен в выводе git вычищается самим _git — проверим на настоящем вызове.
     _, out, _ = await real(str(tmp_path), "log", "-1", "--format=tformat:ghp_SECRET", secret="ghp_SECRET")
     assert out.strip() == "***"
+
+
+async def test_agent_creates_github_repo_instead_of_asking_the_user(tmp_path, monkeypatch):
+    asked = {}
+
+    class Fake:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, headers=None):
+            asked["auth"] = headers["Authorization"]
+            return httpx.Response(200, json={"login": "ada"})
+
+        async def post(self, url, headers=None, json=None):
+            asked["body"] = json
+            return httpx.Response(201, json={"clone_url": "https://github.com/ada/demo.git",
+                                            "html_url": "https://github.com/ada/demo"})
+
+    monkeypatch.setattr(gitops.httpx, "AsyncClient", Fake)
+
+    async def credential(url):
+        assert "github.com" in url
+        return "ada", "ghp_TOKEN"
+
+    git = agent_git.GitAgent(str(tmp_path), "Автор", "a@example.com", credential)
+    result = await git.call("git_remote", {"name": "demo"})
+    assert result["remote"] == "https://github.com/ada/demo.git"
+    assert result["created"] is True and result["html_url"] == "https://github.com/ada/demo"
+    assert asked["auth"] == "Bearer ghp_TOKEN" and asked["body"]["private"] is True
+    missing = await agent_git.GitAgent(str(tmp_path), "a", "a@b.c", lambda url: _none()).call("git_remote", {})
+    assert "токен" in missing["error"] and "терминал" not in missing["error"]
+
+
+async def _none():
+    return None, None
 
 
 async def _setup(client, email="git@example.com"):

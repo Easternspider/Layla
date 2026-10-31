@@ -16,6 +16,8 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
+
 MAX_DIFF = 400_000
 _SHA = re.compile(r"^[0-9a-f]{4,40}$")
 _BRANCH = re.compile(r"^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}(?<![./])$")
@@ -314,7 +316,7 @@ async def set_remote(root: str, url: str) -> dict:
 async def _remote_url(root: str) -> str:
     code, out, _ = await _git(root, "remote", "get-url", "origin", check=False)
     if code != 0 or not out.strip():
-        raise GitError("У проекта нет удалённого репозитория: укажите его адрес (Код → Git).")
+        raise GitError("У проекта нет удалённого репозитория. Вызовите git_remote, не просите пользователя запускать git в терминале.")
     return out.strip()
 
 
@@ -375,6 +377,50 @@ async def synchronize(root: str, token: str | None, username: str | None = None,
     return {"state": "conflicts" if after.get("conflicts") else "synced",
             "conflicts": after.get("conflicts", []), "backup_branch": backup,
             "output": (out + err).strip()[-3000:], "status": after}
+
+
+_REPO = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+
+
+def repo_name(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", (name or "").strip()).strip("-._")[:100]
+    if not cleaned or not _REPO.fullmatch(cleaned):
+        raise GitError("Нужно имя репозитория из букв, цифр, точки, _ или -")
+    return cleaned
+
+
+def _github_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+            "User-Agent": "Layla", "X-GitHub-Api-Version": "2022-11-28"}
+
+
+async def create_github_repo(token: str, name: str, private: bool = True) -> dict:
+    """Создать репозиторий в аккаунте сохранённого токена GitHub и вернуть https-адрес."""
+    name = repo_name(name)
+    headers = _github_headers(token)
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            user = await client.get("https://api.github.com/user", headers=headers)
+            if user.status_code == 401:
+                raise GitError("Токен GitHub отклонён. Обновите его в Код → Git и повторите.")
+            login = (user.json() or {}).get("login") if user.status_code < 300 else None
+            if not login:
+                raise GitError("Не удалось узнать аккаунт GitHub по сохранённому токену.")
+            response = await client.post("https://api.github.com/user/repos", headers=headers,
+                                         json={"name": name, "private": private, "auto_init": False})
+    except httpx.HTTPError as exc:
+        raise GitError("GitHub сейчас недоступен: " + type(exc).__name__) from exc
+    if response.status_code == 422:
+        url = f"https://github.com/{login}/{name}.git"
+        return {"clone_url": url, "html_url": f"https://github.com/{login}/{name}", "created": False, "name": name}
+    if response.status_code >= 300:
+        detail = response.text.replace(token, "•••")[:300]
+        raise GitError(f"GitHub не создал репозиторий (HTTP {response.status_code}): {detail}")
+    data = response.json()
+    clone = data.get("clone_url") or ""
+    if not clone.startswith("https://"):
+        raise GitError("GitHub вернул адрес без https")
+    return {"clone_url": clone, "html_url": data.get("html_url") or clone[:-4], "created": True, "name": name}
 
 
 async def pull(root: str, token: str | None, username: str | None = None,
