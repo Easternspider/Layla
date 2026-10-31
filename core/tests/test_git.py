@@ -87,6 +87,36 @@ async def test_remote_validation_and_token_stays_out_of_arguments(tmp_path, monk
     assert out.strip() == "***"
 
 
+async def test_non_fast_forward_is_merged_and_pushed_again(tmp_path, monkeypatch):
+    await gitops.init(str(tmp_path))
+    (tmp_path / "a.txt").write_text("a")
+    await gitops.commit(str(tmp_path), "c", "a", "a@b.c")
+    await gitops.set_remote(str(tmp_path), "https://github.com/u/r.git")
+    pushes = []
+    real = gitops._git
+
+    async def fake(root, *args, config=None, timeout=60, secret=None, check=True):
+        if args and args[0] == "ls-remote":
+            return 0, "abc\trefs/heads/main\n", ""
+        if args and args[0] in ("fetch", "branch", "merge"):
+            return 0, "", ""
+        if args and args[0] == "merge-base":
+            return (1 if not pushes else 0), "", ""
+        if args and args[0] == "push":
+            pushes.append(args)
+            if len(pushes) == 1:
+                return 1, "! refs/heads/main:refs/heads/main [rejected] (non-fast-forward)\n", \
+                    "error: failed to push some refs to 'https://github.com/u/r.git'\n"
+            return 0, "ok\n", ""
+        return await real(root, *args, config=config, timeout=timeout, secret=secret, check=check)
+
+    monkeypatch.setattr(gitops, "_git", fake)
+    done = await gitops.push(str(tmp_path), "ghp_TOKEN", None)
+    assert done["branch"] == "main" and len(pushes) == 2
+    assert "workflow" in gitops._explain_push(
+        "refusing to allow an OAuth App to create or update workflow without `workflow` scope")
+
+
 async def test_agent_creates_github_repo_instead_of_asking_the_user(tmp_path, monkeypatch):
     asked = {}
 

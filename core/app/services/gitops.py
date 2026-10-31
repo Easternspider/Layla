@@ -335,13 +335,48 @@ async def push(root: str, token: str | None, username: str | None = None, branch
         raise GitError("Ветки объединены с конфликтами. Вызовите git_conflicts, исправьте файлы, "
                        "git_resolve для каждого файла, затем git_commit и повторите git_push.")
     config = _auth(url, username, token) if token else {}
-    _, out, err = await _git(root, "push", "--porcelain", "-u", "origin", f"HEAD:refs/heads/{branch}",
-                             config=config, timeout=180, secret=token)
-    return {"branch": branch, "output": (out + err).strip()[-3000:], "status": await status(root)}
+    if not token and "github.com" in host_of(url):
+        raise GitError("Нет токена github.com в Код → Git, поэтому push не отправить.")
+    code, text = await _push_once(root, config, branch, token)
+    if code and _stale_push(text):
+        synced = await synchronize(root, token, username, branch, author, email, allow_unrelated=True)
+        if synced["state"] in ("conflicts", "needs_commit"):
+            raise GitError("Удалённая ветка содержит другие коммиты, слияние дало конфликты. "
+                           "Вызовите git_conflicts, исправьте файлы, git_resolve, git_commit и снова git_push.")
+        code, text = await _push_once(root, config, branch, token)
+    if code:
+        raise GitError(_explain_push(text))
+    return {"branch": branch, "output": text[-1500:], "status": await status(root)}
+
+
+async def _push_once(root: str, config: dict, branch: str, token: str | None) -> tuple[int, str]:
+    code, out, err = await _git(root, "push", "--porcelain", "-u", "origin", f"HEAD:refs/heads/{branch}",
+                                config=config, timeout=180, secret=token, check=False)
+    return code, (out + "\n" + err).strip()
+
+
+def _stale_push(text: str) -> bool:
+    low = text.lower()
+    return "non-fast-forward" in low or "fetch first" in low or "unrelated histories" in low
+
+
+def _explain_push(text: str) -> str:
+    low = text.lower()
+    if "workflow" in low and "scope" in low:
+        return ("GitHub отклонил push: в коммите есть .github/workflows, а у токена нет права workflow. "
+                "Включите scope workflow у токена в Код → Git и повторите.")
+    if "protected branch" in low or "gh006" in low:
+        return "Ветка на GitHub защищена. Нужна другая ветка или снятие защиты."
+    if ("permission to" in low and "denied" in low) or "returned error: 403" in low:
+        return "Токен GitHub не может писать в этот репозиторий. Проверьте доступ и право contents:write."
+    lines = [line for line in text.splitlines() if line.strip() and not line.startswith("error: failed to push")]
+    detail = " ".join(lines[-4:])[:500]
+    return "GitHub отклонил push. " + (detail or text[-500:])
 
 
 async def synchronize(root: str, token: str | None, username: str | None = None,
-                       branch: str | None = None, author: str = "Layla", email: str = "layla@localhost") -> dict:
+                       branch: str | None = None, author: str = "Layla", email: str = "layla@localhost",
+                       allow_unrelated: bool = False) -> dict:
     _require(root)
     url = await _remote_url(root)
     config = _auth(url, username, token) if token else {}
@@ -369,8 +404,13 @@ async def synchronize(root: str, token: str | None, username: str | None = None,
     backup = "layla/sync-backup/" + uuid.uuid4().hex
     await _git(root, "branch", backup, "HEAD")
     identity = {"user.name": author or "Layla", "user.email": email or "layla@localhost"}
-    code, out, err = await _git(root, "merge", "--no-edit", "--no-stat", "FETCH_HEAD",
-                               config=identity, check=False)
+    merge = ["merge", "--no-edit", "--no-stat"]
+    if allow_unrelated:
+        merge.append("--allow-unrelated-histories")
+    code, out, err = await _git(root, *merge, "FETCH_HEAD", config=identity, check=False)
+    if code and allow_unrelated is False and "unrelated histories" in (err + out).lower():
+        code, out, err = await _git(root, "merge", "--no-edit", "--no-stat", "--allow-unrelated-histories",
+                                   "FETCH_HEAD", config=identity, check=False)
     after = await status(root)
     if code and not after.get("conflicts"):
         raise GitError("Не удалось объединить ветки: " + (err or out).strip()[-600:])
