@@ -157,6 +157,29 @@ All six milestones (M0–M6) are implemented. See
 
 ## Quick start
 
+### One command
+
+From a clone of this repository, or on a new machine:
+
+```bash
+bash scripts/install.sh
+```
+
+Press Enter to serve plain HTTP on port 80 (this machine and its IP). Type a domain to serve HTTPS: Caddy obtains a Let's Encrypt certificate. DNS for that domain must already point at the server, and ports 80 and 443 must be open.
+
+```bash
+bash scripts/install.sh example.com
+```
+
+On a machine without the repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Easternspider/Layla/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Easternspider/Layla/main/scripts/install.sh | bash -s -- example.com
+```
+
+The script writes `.env` once (Fernet key, JWT secret, database password, LiteLLM key) and starts the stack. A later run keeps those secrets. The administrator password is shown once on the login page; the login is `admin@layla.app` unless you change `LAYLA_ADMIN_EMAIL`.
+
 ### With Docker Compose (full stack)
 
 ```bash
@@ -169,7 +192,7 @@ docker compose up --build
 Then open `http://localhost` (Caddy fronts the frontend and proxies `/api`).
 In dev this is plain HTTP, so the key-entry banner appears on secret screens —
 expected. For production, set `LAYLA_PUBLIC_HOST` to a real domain and Caddy
-provisions HTTPS automatically.
+provisions HTTPS automatically. `scripts/install.sh` does that for you.
 
 ### Local dev (without Docker)
 
@@ -223,6 +246,7 @@ Layla/
 ├── deploy/
 │   ├── caddy/Caddyfile
 │   └── litellm/config.yaml
+├── scripts/         install.sh and maintenance helpers
 ├── docs/
 ├── docker-compose.yml
 └── .env.example
