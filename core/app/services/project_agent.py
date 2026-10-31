@@ -858,7 +858,11 @@ async def run(
         available += ops_specs
     if crew is not None:
         available = [tool for tool in available if tool["function"]["name"] != "delegate_agent"]
-        available += crew.tools()
+        held = {tool["function"]["name"] for tool in available}
+        crew_specs = crew.tools()
+        if mode in READ_ONLY_MODES:
+            crew_specs = [tool for tool in crew_specs if tool["function"]["name"] not in crew.mutating]
+        available += [tool for tool in crew_specs if tool["function"]["name"] not in held]
     git_specs = agent_git.specs(mode) if git is not None and agent_git.can_use(permissions) else []
     available = available + run_specs + git_specs
     if mcp is not None and mode not in READ_ONLY_MODES:

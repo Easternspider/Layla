@@ -58,7 +58,29 @@ _SNAP = """() => {
 }"""
 _REF = re.compile(r"^(?:n:|ref:)?(\d+)$")
 _NTH = re.compile(r"^([a-zA-Z][\w-]*)(?::nth-of-type|:nth-child)\((\d+)\)$")
+_CAPTCHA_CLICK = re.compile(r"^(click|клик|checkbox)\b", re.I)
+_CAPTCHA_TILES = re.compile(r"(?:tiles|клетки|номера)\s*[:\-]?\s*([0-9,\s]+)", re.I)
 _MISS = "Элемент не найден. Укажи номер n из items, например 3, или видимый текст. Не выдумывай css:a:nth-of-type."
+
+
+def interpret_captcha(answer: str) -> dict:
+    """Turn a vision reply into a click, tile clicks, or the characters to type."""
+    text = (answer or "").strip()
+    if not text:
+        return {"kind": "unknown"}
+    if _CAPTCHA_CLICK.match(text) or text.upper() == "CLICK":
+        return {"kind": "click"}
+    tiles = _CAPTCHA_TILES.search(text)
+    if tiles:
+        numbers = [int(item) for item in re.findall(r"\d+", tiles.group(1))]
+        numbers = [item for item in numbers if 1 <= item <= 16][:9]
+        if numbers:
+            return {"kind": "tiles", "tiles": numbers}
+    line = text.splitlines()[0].strip().strip("\"'`[]")
+    line = re.sub(r"^(ответ|answer|text|код)\s*[:\-]\s*", "", line, flags=re.I).strip()
+    if 1 <= len(line) <= 16 and " " not in line:
+        return {"kind": "type", "text": line}
+    return {"kind": "unknown", "text": text[:200]}
 
 
 def ref_number(target: str) -> int | None:
@@ -293,6 +315,63 @@ class Desk:
             await self._click(locator)
             png, _path = await self._shot(page)
             return await self._snapshot(page, png)
+
+    async def captcha(self, provider, key, model: str) -> dict:
+        async with self._lock:
+            self._touch()
+            page = await self._ensure()
+            box = await page.evaluate("""() => {
+              const nodes = [...document.querySelectorAll('img, canvas, iframe, [class*="captcha" i], [id*="captcha" i]')];
+              const hit = nodes.find((el) => {
+                const blob = `${el.getAttribute('src') || ''} ${el.getAttribute('alt') || ''} ${el.className || ''} ${el.id || ''}`.toLowerCase();
+                return /captcha|капч|recaptcha|hcaptcha|turnstile/.test(blob);
+              });
+              if (!hit) return null;
+              hit.scrollIntoView({ block: 'center', inline: 'center' });
+              const r = hit.getBoundingClientRect();
+              if (r.width < 8 || r.height < 8) return null;
+              return { x: Math.max(0, r.x), y: Math.max(0, r.y), w: Math.min(r.width, 800), h: Math.min(r.height, 600) };
+            }""")
+            if isinstance(box, dict):
+                png = await page.screenshot(type="jpeg", quality=55, clip={
+                    "x": box["x"], "y": box["y"], "width": box["w"], "height": box["h"]})
+            else:
+                png, _path = await self._shot(page)
+            question = (
+                "Это проверка на странице. Ответь одной строкой и ничем больше. "
+                "Если на картинке символы, напиши только их. "
+                "Если это галочка «я не робот», напиши CLICK. "
+                "Если сетка картинок, напиши TILES: и номера клеток слева направо сверху вниз, которые нужно нажать."
+            )
+            seen = await _describe(provider, key, model, png, question)
+            action = interpret_captcha(seen)
+            done = "не разобрана"
+            if action["kind"] == "type":
+                field = page.locator("input[type='text'], input:not([type]), textarea").first
+                if await field.count():
+                    await field.fill(action["text"][:16])
+                    done = "введено " + action["text"]
+                else:
+                    done = "прочитано " + action["text"] + ", поля для ввода нет"
+            elif action["kind"] == "click":
+                if isinstance(box, dict):
+                    await page.mouse.click(box["x"] + min(28, box["w"] / 2), box["y"] + box["h"] / 2)
+                    done = "нажата галочка"
+                else:
+                    done = "галочка не найдена"
+            elif action["kind"] == "tiles" and isinstance(box, dict):
+                cols = 3
+                for number in action["tiles"]:
+                    row, col = divmod(number - 1, cols)
+                    await page.mouse.click(
+                        box["x"] + (col + 0.5) * box["w"] / cols,
+                        box["y"] + (row + 0.5) * box["h"] / cols)
+                done = "нажаты клетки " + ",".join(str(item) for item in action["tiles"])
+            elif action["kind"] == "unknown" and not seen:
+                done = "модель не разглядела картинку"
+            shot = await self._snapshot(page, png, seen)
+            shot["captcha"] = done
+            return shot
 
     async def type_text(self, target: str, text: str, submit: bool) -> dict:
         async with self._lock:

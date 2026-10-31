@@ -117,6 +117,7 @@ _TOOL_LABELS = {
     "browse_scroll": "Браузер: прокрутить",
     "browse_back": "Браузер: назад",
     "browse_upload": "Браузер: файл",
+    "browse_captcha": "Браузер: капча",
     "create_inbox": "Почта: ящик",
     "read_inbox": "Почта: письмо",
 }
@@ -189,8 +190,6 @@ async def upload_chat_file(chat_id: str, request: Request, name: str = Query(...
 async def list_crew(chat_id: str, user: User = Depends(get_current_user),
                     session: AsyncSession = Depends(get_session)) -> list[dict]:
     chat = await _owned_chat(session, user, chat_id)
-    if chat.domain != Domain.crew:
-        raise HTTPException(status_code=404, detail="Это не чат оркестра")
     return await crew.snapshot(session, chat.id)
 
 
@@ -199,8 +198,6 @@ async def stop_crew(chat_id: str, member_id: str, user: User = Depends(get_curre
                     session: AsyncSession = Depends(get_session),
                     maker: async_sessionmaker[AsyncSession] = Depends(get_sessionmaker)) -> dict:
     chat = await _owned_chat(session, user, chat_id)
-    if chat.domain != Domain.crew:
-        raise HTTPException(status_code=404, detail="Это не чат оркестра")
     try:
         return await crew.stop(maker, user.id, chat.id, member_id)
     except ValueError as exc:
@@ -1198,11 +1195,11 @@ async def run_chat(
             if transcript is not None:
                 messages = await transcript.load(messages)
             engine = code_lead.run if runtime is not None else project_agent.run
-            ops = agent_ops.Ops(maker, owner_id, list(chat.server_ids or [])) if domain == "agent" else None
+            ops = agent_ops.Ops(maker, owner_id, list(chat.server_ids or []))
             crew_lead = crew.Manager(
                 maker, owner_id, chat_id, project_id, root, provider_id=prov.id, model=model,
                 caps=caps, mode=mode, permissions=permissions,
-            ) if domain == "crew" else None
+            )
             async with aclosing(engine(prov, key, model, messages, root, permissions,
                                                  mode=mode, approve=approve, caps=caps, extra=extra,
                                                  runner=runner, git=git, mcp=mcp, runtime=runtime, workers=workers,

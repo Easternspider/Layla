@@ -8,6 +8,22 @@ import { confirmAction } from "@/components/ConfirmDialog";
 import { api, type Chat, type Job, type PentestServer } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 
+type Member = {
+  id: string;
+  role: string;
+  task: string;
+  status: string;
+  report: string;
+  error: string | null;
+  detached: boolean;
+};
+
+const ROLE: Record<string, string> = { research: "Поиск", review: "Ревью", build: "Сборка" };
+const STATUS: Record<string, string> = {
+  queued: "в очереди", running: "работает", done: "готово", error: "ошибка",
+  cancelled: "остановлен", interrupted: "прерван",
+};
+
 export function AgentDomain() {
   const owner = useAuth(s => s.user?.id);
   const qc = useQueryClient();
@@ -44,6 +60,16 @@ export function AgentDomain() {
     refetchInterval: 2000,
   });
   const servers = useQuery({ queryKey: ["servers"], queryFn: () => api.get<PentestServer[]>("/servers") });
+  const members = useQuery({
+    queryKey: ["crew", owner, chatId],
+    enabled: !!owner && !!chatId,
+    queryFn: () => api.get<Member[]>(`/chats/${chatId}/crew`),
+    refetchInterval: 2000,
+  });
+  const stopMember = useMutation({
+    mutationFn: (id: string) => api.post(`/chats/${chatId}/crew/${id}/stop`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crew", owner, chatId] }),
+  });
   const chosen = chats.data?.find(chat => chat.id === chatId)?.server_ids || [];
   const setServers = useMutation({
     mutationFn: (server_ids: string[]) => api.put(`/chats/${chatId}/servers`, { server_ids }),
@@ -130,6 +156,20 @@ export function AgentDomain() {
           </span>
         </label>)}
         {!servers.data?.length && <p className="px-2 text-xs text-neutral-500">Добавьте сервер, и агент сможет проверить его и поставить пакеты.</p>}
+        <p className="px-2 pt-3 text-sm font-medium">Субагенты</p>
+        <p className="px-2 text-[11px] leading-4 text-neutral-500">Не больше трёх. Ведущий сам открывает сайты, смотрит картинки и решает капчу.</p>
+        {!chatId && <p className="px-2 text-xs text-neutral-500">Откройте задачу, чтобы видеть субагентов.</p>}
+        {chatId && members.isSuccess && members.data.length === 0 && <p className="px-2 text-xs text-neutral-500">Пока никого.</p>}
+        {(members.data || []).map(member => <article key={member.id} className="rounded-xl bg-black/50 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium">{ROLE[member.role] || member.role}</p>
+            <p className="text-[11px] text-neutral-400">{STATUS[member.status] || member.status}{member.detached ? " · фон" : ""}</p>
+          </div>
+          <p className="mt-1 line-clamp-3 text-[11px] leading-4 text-neutral-300">{member.task}</p>
+          {member.report && <p className="mt-1 line-clamp-4 text-[11px] leading-4 text-neutral-500">{member.report}</p>}
+          {member.error && <p className="mt-1 text-[11px] text-red-300">{member.error}</p>}
+          {(member.status === "queued" || member.status === "running") && <button className="mt-2 text-[11px] text-[#0A84FF]" disabled={stopMember.isPending} onClick={() => stopMember.mutate(member.id)}>Остановить</button>}
+        </article>)}
       </div>
     </aside>
   </div>;

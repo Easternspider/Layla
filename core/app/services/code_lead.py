@@ -46,7 +46,7 @@ async def run(provider, key, model, messages, root, permissions=None, *, runtime
                 async with aclosing(project_agent.run(provider, key, model, messages, current_root, permissions,
                     mode=mode, approve=approve, caps=caps, runtime=runtime, workers=workers, git=current_git, mcp=mcp,
                     transcript=transcript, workspace=workspace, continuation=continuation, budget=budget,
-                    tool_allowlist=scope,
+                    tool_allowlist=scope, ops=_unused.get("ops"), crew=_unused.get("crew"),
                     extra=("Current Code workspace: " + str(state) + "\n" +
                            await run_in_threadpool(project_agent.project_rules, current_root)),
                     runner=runner, lsp=code_lsp.Client(runtime.owner_id, cache_id, current_root),

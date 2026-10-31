@@ -12,7 +12,7 @@ from app.models.provider import Provider
 from app.models.user import Project, User, Workspace
 from app.services import crew
 from app.services.crew import SpawnAgent
-from app.services.crew_browser import check_navigation, image_mime, nth_hint, private_host, ref_number
+from app.services.crew_browser import check_navigation, image_mime, interpret_captcha, nth_hint, private_host, ref_number
 
 
 async def _world(maker, tmp_path):
@@ -148,7 +148,10 @@ async def test_crew_chat_api(client):
     assert missing.status_code == 404
     assert Domain.crew.value == "crew"
     assert "субагент" in crew.NOTE and "трёх" in crew.NOTE
-    assert "browse_open" in crew.SCHEMAS and "browse_see" in crew.SCHEMAS and "create_inbox" in crew.SCHEMAS
+    assert "browse_open" in crew.SCHEMAS and "browse_see" in crew.SCHEMAS and "browse_captcha" in crew.SCHEMAS
+    assert interpret_captcha("CLICK")["kind"] == "click"
+    assert interpret_captcha("TILES: 1, 3, 5")["tiles"] == [1, 3, 5]
+    assert interpret_captcha("Ab7k") == {"kind": "type", "text": "Ab7k"}
     assert private_host("127.0.0.1") and private_host("localhost")
     assert not private_host("example.com")
     assert image_mime(b"\xff\xd8\xff\x00") == "image/jpeg"

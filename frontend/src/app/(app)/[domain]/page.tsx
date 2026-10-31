@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import { domainBySlug, DOMAINS } from "@/lib/domains";
 import { AgentDomain } from "@/components/AgentDomain";
 import { CodeDomain } from "@/components/CodeDomain";
-import { CrewDomain } from "@/components/CrewDomain";
 import { DesignDomain } from "@/components/DesignDomain";
 import { OsintDomain } from "@/components/OsintDomain";
 import { PentestDomain } from "@/components/PentestDomain";
@@ -17,7 +16,6 @@ export default function DomainPage({ params }: { params: { domain: string } }) {
   if (domain.slug === "code") return <CodeDomain />;
   if (domain.slug === "osint") return <OsintDomain />;
   if (domain.slug === "design") return <DesignDomain />;
-  if (domain.slug === "agent") return <AgentDomain />;
-  if (domain.slug === "crew") return <CrewDomain />;
+  if (domain.slug === "agent" || params.domain === "crew") return <AgentDomain />;
   return <PentestDomain />;
 }
