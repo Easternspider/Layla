@@ -257,7 +257,9 @@ async def launch_batch(
                              "Площадка — выбранный attackbox, наступательные действия включены. "
                              "Начни с разведки и доводи признаки до доказанного влияния."
                              f"{extra}")[:20000],
-                    mode="auto"), user, session, maker)
+                    mode="auto",
+                    model=(body.model or "").strip() or None,
+                    provider_id=(body.provider_id or "").strip() or None), user, session, maker)
                 started.append(engagement.id)
             except HTTPException as exc:
                 errors.append(f"{engagement.target}: {exc.detail}")
