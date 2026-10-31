@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -18,8 +17,7 @@ RUN pip install --no-cache-dir 'playwright>=1.49' \
     && playwright install --with-deps chromium
 
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install .
+RUN pip install --no-cache-dir .
 
 COPY alembic.ini ./
 COPY alembic ./alembic
