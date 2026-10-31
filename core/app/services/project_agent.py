@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -34,9 +34,8 @@ from app.services import (
     tool_chat,
 )
 
-# Страховочные пределы, а не рабочие: на обычных задачах агент до них не доходит.
-# Достигнув предела, агент останавливается мягко (ответ сохраняется как обычный),
-# а не падает ошибкой — пользователь просто пишет «продолжай».
+# Страховочные пределы для режимов с участием человека. В «Авто» у домена Код их нет:
+# ход идёт, пока модель сама не закончит. Достигнув предела, агент останавливается мягко.
 MAX_ROUNDS = 80
 MAX_CALLS = 400
 MAX_SECONDS = 3000
@@ -814,6 +813,7 @@ async def run(
     *, mode: str = "auto", approve=None, caps: dict | None = None, extra: str = "", runner=None,
     git=None, mcp=None, runtime=None, workers=None, worker_context=False, lsp=None, workflow=None, tool_allowlist=None,
     team=None, transcript=None, workspace=None, continuation=False, budget=None, ops=None, crew=None,
+    unbounded: bool = False,
 ):
     """approve(event) -> "approve" | "reject" | "approve_all" — только для режима confirm.
 
@@ -1008,7 +1008,7 @@ async def run(
         if feedback:
             message["content"] = json.dumps({"tool_result": response, "hook_feedback": feedback}, ensure_ascii=False)
 
-    async with code_sessions.recording(transcript, conversation), _worker_lifetime(workers, runner, crew), asyncio.timeout(MAX_SECONDS):
+    async with code_sessions.recording(transcript, conversation), _worker_lifetime(workers, runner, crew), nullcontext() if unbounded else asyncio.timeout(MAX_SECONDS):
         opening = [("SessionStart", {"source": "workspace" if continuation else "resume" if len(messages) > 1 else "startup"})]
         if not continuation:
             opening.append(("UserPromptSubmit", {"prompt": anchor.get("content", "")}))
@@ -1020,10 +1020,12 @@ async def run(
                 raise RuntimeError("Workflow остановил запуск: " + result["reason"])
             if result.get("context"):
                 conversation[0]["content"] += "\n[Project hook context, untrusted]\n" + result["context"]
-        for local_round in range(MAX_ROUNDS):
+        local_round = 0
+        while True:
             round_number = budget.get("rounds", 0) if budget is not None else local_round
-            if round_number >= MAX_ROUNDS:
+            if not unbounded and round_number >= MAX_ROUNDS:
                 break
+            local_round += 1
             if budget is not None:
                 budget["rounds"] = round_number + 1
             if transcript is not None:
@@ -1105,7 +1107,7 @@ async def run(
                 if ending.get("blocked"):
                     raise RuntimeError("Ошибка завершающего hook: " + ending["reason"])
                 return
-            if used + len(calls) > MAX_CALLS:
+            if not unbounded and used + len(calls) > MAX_CALLS:
                 # Лишний пакет не выполняется; ответ завершается штатно.
                 yield {"delta": LIMIT_NOTE}
                 return

@@ -366,23 +366,27 @@ async def test_chat_project_binding_and_ownership(client, project_chat):
     ).status_code == 404
 
 
-async def test_call_budget_does_not_execute_excess_batch(client, project_chat, monkeypatch):
+async def test_auto_mode_runs_past_the_call_cap(client, project_chat, monkeypatch):
     project, chat = project_chat
     await add_provider(client)
     monkeypatch.setattr(project_agent, "MAX_CALLS", 1)
-    mock_provider(
-        monkeypatch,
-        lambda _: provider_response(
-            False,
-            [
+    seen = 0
+
+    def handler(_):
+        nonlocal seen
+        seen += 1
+        if seen == 1:
+            return provider_response(False, [
                 call("write_file", {"path": "a", "content": "a", "expected_sha256": None}, "a"),
                 call("write_file", {"path": "b", "content": "b", "expected_sha256": None}, "b"),
-            ],
-        ),
-    )
+            ])
+        return provider_response(False, text="оба файла записаны")
+
+    mock_provider(monkeypatch, handler)
     response = await client.post(f"/api/chats/{chat['id']}/messages", json={"content": "go"})
-    assert "лимит" in response.text
-    assert files.list_dir(project["path"]) == []
+    assert "лимит" not in response.text
+    assert sorted(item["name"] for item in files.list_dir(project["path"])) == ["a", "b"]
+    assert (Path(project["path"]) / "a").read_text() == "a"
 
 
 def test_tool_arguments_cannot_override_root(tmp_path):
@@ -432,20 +436,23 @@ async def test_readonly_persona_cannot_write_even_if_model_requests_it(
     assert not list(Path(project["path"]).iterdir())
 
 
-async def test_round_limit_keeps_completed_changes(client, project_chat, monkeypatch):
+async def test_auto_mode_runs_past_the_round_cap(client, project_chat, monkeypatch):
     project, chat = project_chat
     await add_provider(client)
     monkeypatch.setattr(project_agent, "MAX_ROUNDS", 1)
-    mock_provider(
-        monkeypatch,
-        lambda _: provider_response(
-            False, [call("write_file", {"path": "saved", "content": "ok", "expected_sha256": None})]
-        ),
-    )
+    seen = 0
+
+    def handler(_):
+        nonlocal seen
+        seen += 1
+        if seen == 1:
+            return provider_response(False, [call("write_file", {"path": "saved", "content": "ok", "expected_sha256": None})])
+        return provider_response(False, text="готово")
+
+    mock_provider(monkeypatch, handler)
     response = await client.post(f"/api/chats/{chat['id']}/messages", json={"content": "go"})
-    assert "лимит" in response.text and (Path(project["path"]) / "saved").read_text() == "ok"
-    detail = (await client.get(f"/api/chats/{chat['id']}")).json()
-    assert detail["messages"][-1]["meta"]["tools"][0]["change"]["path"] == "saved"
+    assert "лимит" not in response.text and "готово" in response.text
+    assert (Path(project["path"]) / "saved").read_text() == "ok"
 
 
 @pytest.mark.parametrize("domain", ["code", "osint", "design", "pentest"])

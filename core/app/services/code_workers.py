@@ -635,7 +635,7 @@ class Manager:
                     workflow=code_hooks.Runtime(runner, permissions, session_id=worker_id,
                                                 extra_hooks=payload.get("skill_hooks")),
                     tool_allowlist=payload.get("tool_allowlist"),
-                    team=team, transcript=transcript,
+                    team=team, transcript=transcript, unbounded=payload.get("mode", "auto") == "auto",
                 )) as stream:
                     # Cancellation can arrive while saving a yielded event, outside the generator.
                     # Close it before releasing the job so its hooks/transports clean up deterministically.

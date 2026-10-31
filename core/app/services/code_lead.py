@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import aclosing
+from contextlib import aclosing, nullcontext
 
 from starlette.concurrency import run_in_threadpool
 
@@ -27,7 +27,7 @@ async def run(provider, key, model, messages, root, permissions=None, *, runtime
             raise ValueError("В этом Code-чате уже работает ведущий агент")
         ACTIVE_CHATS.add(binding)
         acquired = True
-        async with asyncio.timeout(project_agent.MAX_SECONDS):
+        async with nullcontext() if mode == "auto" else asyncio.timeout(project_agent.MAX_SECONDS):
             for _transition in range(9):
                 current_root, current = await workspace.current()
                 workspace_id = current.id if current else None
@@ -50,7 +50,8 @@ async def run(provider, key, model, messages, root, permissions=None, *, runtime
                     extra=("Current Code workspace: " + str(state) + "\n" +
                            await run_in_threadpool(project_agent.project_rules, current_root)),
                     runner=runner, lsp=code_lsp.Client(runtime.owner_id, cache_id, current_root),
-                    workflow=code_hooks.Runtime(runner, permissions, mode=mode, session_id=runtime.chat_id))) as stream:
+                    workflow=code_hooks.Runtime(runner, permissions, mode=mode, session_id=runtime.chat_id),
+                    unbounded=mode == "auto")) as stream:
                     async for event in stream:
                         if "workspace_restart" in event:
                             messages = event["workspace_restart"]
