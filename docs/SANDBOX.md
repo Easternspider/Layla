@@ -126,7 +126,8 @@ SANDBOX_MEMORY=4g
 SANDBOX_CPUS=2
 # Предел одной команды, секунд
 SANDBOX_MAX_TIMEOUT=900
-# Дополнительные хосты для прокси, через запятую (поддомены подходят); «*» — любые публичные
+# Дополнительные хосты для прокси, через запятую (поддомены подходят); «*» — любые публичные.
+# GitHub уже разрешён: api.github.com, github.com и githubusercontent.com.
 SANDBOX_ALLOW_HOSTS=
 # Превью: порт снаружи и адрес Caddy (для HTTPS — домен:8090), свой адрес превью целиком
 LAYLA_PREVIEW_PORT=8090
@@ -142,8 +143,8 @@ PISTON_COMPILE_TIMEOUT=60000
 PISTON_RUN_MEMORY_LIMIT=536870912
 ```
 
-Например, чтобы `npm install` мог скачивать пакеты прямо с GitHub:
-`SANDBOX_ALLOW_HOSTS=github.com,codeload.github.com,objects.githubusercontent.com`.
+GitHub API, `git clone` по HTTPS и скачивание зависимостей с GitHub из песочницы работают сразу.
+Другой хост добавляется так: `SANDBOX_ALLOW_HOSTS=example.com`.
 
 ## Языки Piston
 

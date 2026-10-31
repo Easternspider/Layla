@@ -124,7 +124,7 @@ services:
       - sandbox
     restart: unless-stopped
 
-  # Единственный выход песочницы в интернет: только HTTPS и только к реестрам пакетов
+  # Единственный выход песочницы в интернет: только HTTPS, реестры пакетов и GitHub
   # (свои хосты — SANDBOX_ALLOW_HOSTS, «*» — любые публичные). Локальная сеть закрыта всегда.
   sandbox-proxy:
     image: python:3.12-slim

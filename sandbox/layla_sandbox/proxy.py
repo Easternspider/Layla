@@ -27,6 +27,8 @@ DEFAULT_HOSTS = (
     "crates.io", "index.crates.io", "static.crates.io", "static.rust-lang.org",
     # Java
     "repo.maven.apache.org", "repo1.maven.org", "plugins.gradle.org", "services.gradle.org",
+    # GitHub: API, git по HTTPS, пакеты и файлы релизов. Поддомены входят сами.
+    "github.com", "githubusercontent.com",
 )
 PORTS = (443,)
 MAX_HEAD = 16 * 1024

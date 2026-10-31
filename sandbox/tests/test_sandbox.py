@@ -156,8 +156,11 @@ def test_proxy_host_rules():
     hosts = proxy.DEFAULT_HOSTS
     assert proxy.host_allowed("files.pythonhosted.org", hosts)
     assert proxy.host_allowed("registry.npmjs.org.", hosts)
+    assert proxy.host_allowed("api.github.com", hosts)
+    assert proxy.host_allowed("codeload.github.com", hosts)
+    assert proxy.host_allowed("raw.githubusercontent.com", hosts)
     assert not proxy.host_allowed("evil.com", hosts)
-    assert not proxy.host_allowed("pypi.org.evil.com", hosts)
+    assert not proxy.host_allowed("github.com.evil.com", hosts)
     assert proxy.host_allowed("anything.example", ("*",))
     assert not proxy.public_ip("127.0.0.1") and not proxy.public_ip("10.0.0.5")
     assert not proxy.public_ip("169.254.169.254") and not proxy.public_ip("172.18.0.2")
