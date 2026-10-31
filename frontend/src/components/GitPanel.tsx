@@ -200,11 +200,11 @@ export function GitPanel({ projectId, onOpenFile }: { projectId: string; onOpenF
             <button onClick={async () => { if (await confirmAction(`Удалить токен для ${host}?`, "Удалить")) act("token", () => api.del(`/git/credentials/${host}`), "Токен удалён"); }} className="icon-button !h-7 !w-7 hover:text-red-300" aria-label="Удалить токен"><Trash2 className="h-3.5 w-3.5" /></button>
           </div> : <>
             <p className="mt-1 leading-relaxed text-neutral-500">
-              Нужен для push и для pull из приватного репозитория. На GitHub: Settings → Developer settings → Fine-grained tokens,
-              доступ к нужному репозиторию, права Contents — Read and write. Один токен работает для всех проектов на этом хостинге.
+              Нужен для push, pull приватного репозитория и создания репозитория. Подойдёт classic-токен
+              (ghp_…, scope repo) или fine-grained (github_pat_…, Contents — Read and write). Один токен работает для всех проектов на этом хостинге.
             </p>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="github_pat_…" aria-label="Токен доступа" autoComplete="off"
+              <input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="ghp_… или github_pat_…" aria-label="Токен доступа" autoComplete="off"
                 className="min-w-0 flex-1 rounded-xl bg-ink-950 px-3 py-2 font-mono text-xs outline-none" />
               <button className="secondary-button !px-3 !py-2 text-xs" disabled={token.trim().length < 4 || !!busy}
                 onClick={() => act("token", () => api.put("/git/credentials", { host, token: token.trim() }).then(() => setToken("")), "Токен сохранён")}>

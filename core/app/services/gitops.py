@@ -429,24 +429,34 @@ def repo_name(name: str) -> str:
     return cleaned
 
 
-def _github_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+def _github_schemes(token: str) -> tuple[str, ...]:
+    # Classic PAT (ghp_) и OAuth (gho_) GitHub принимает как «token». Fine-grained — как Bearer.
+    if token.startswith(("ghp_", "gho_")):
+        return ("token", "Bearer")
+    return ("Bearer", "token")
+
+
+def _github_headers(token: str, scheme: str) -> dict[str, str]:
+    return {"Authorization": f"{scheme} {token}", "Accept": "application/vnd.github+json",
             "User-Agent": "Layla", "X-GitHub-Api-Version": "2022-11-28"}
 
 
 async def create_github_repo(token: str, name: str, private: bool = True) -> dict:
     """Создать репозиторий в аккаунте сохранённого токена GitHub и вернуть https-адрес."""
     name = repo_name(name)
-    headers = _github_headers(token)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            user = await client.get("https://api.github.com/user", headers=headers)
-            if user.status_code == 401:
-                raise GitError("Токен GitHub отклонён. Обновите его в Код → Git и повторите.")
+            user = None
+            for scheme in _github_schemes(token):
+                user = await client.get("https://api.github.com/user", headers=_github_headers(token, scheme))
+                if user.status_code != 401:
+                    break
+            if user is None or user.status_code == 401:
+                raise GitError("Токен GitHub отклонён. Для classic-токена нужен scope repo, для fine-grained — Contents: Read and write. Обновите его в Код → Git.")
             login = (user.json() or {}).get("login") if user.status_code < 300 else None
             if not login:
                 raise GitError("Не удалось узнать аккаунт GitHub по сохранённому токену.")
-            response = await client.post("https://api.github.com/user/repos", headers=headers,
+            response = await client.post("https://api.github.com/user/repos", headers=_github_headers(token, scheme),
                                          json={"name": name, "private": private, "auto_init": False})
     except httpx.HTTPError as exc:
         raise GitError("GitHub сейчас недоступен: " + type(exc).__name__) from exc

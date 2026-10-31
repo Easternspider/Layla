@@ -149,7 +149,7 @@ async def test_agent_creates_github_repo_instead_of_asking_the_user(tmp_path, mo
     result = await git.call("git_remote", {"name": "demo"})
     assert result["remote"] == "https://github.com/ada/demo.git"
     assert result["created"] is True and result["html_url"] == "https://github.com/ada/demo"
-    assert asked["auth"] == "Bearer ghp_TOKEN" and asked["body"]["private"] is True
+    assert asked["auth"] == "token ghp_TOKEN" and asked["body"]["private"] is True
     missing = await agent_git.GitAgent(str(tmp_path), "a", "a@b.c", lambda url: _none()).call("git_remote", {})
     assert "токен" in missing["error"] and "терминал" not in missing["error"]
 
