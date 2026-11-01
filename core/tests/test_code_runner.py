@@ -298,9 +298,11 @@ def test_history_mentions_commands_and_shrinks_long_output():
         {"name": "run_code", "command": "go: main.go", "status": "error", "error": "Piston недоступен"}]})
     text = history.entry(message)["content"]
     assert "`pytest -q` → exit 1" in text and "`go: main.go` → error: Piston недоступен" in text
-    long = json.dumps({"exit_code": 1, "output": "start " + "x" * 5000 + " the error at the end"})
+    long = json.dumps({"command": "pytest -q", "exit_code": 1, "output": "start " + "x" * 5000 + " the error at the end"})
     slim = history._shrink_tool({"role": "tool", "content": long})
-    assert json.loads(slim["content"])["output"].endswith("the error at the end")
+    data = json.loads(slim["content"])
+    assert data["command"] == "pytest -q" and data["exit_code"] == 1
+    assert "output" not in data and data["note"] == history._HIDDEN
 
 
 def test_output_helpers():
