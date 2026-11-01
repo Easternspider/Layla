@@ -47,7 +47,7 @@ async def run(provider, key, model, messages, root, permissions=None, *, runtime
                     mode=mode, approve=approve, caps=caps, runtime=runtime, workers=workers, git=current_git, mcp=mcp,
                     transcript=transcript, workspace=workspace, continuation=continuation, budget=budget,
                     tool_allowlist=scope, ops=_unused.get("ops"), crew=_unused.get("crew"),
-                    extra=("Current Code workspace: " + str(state) + "\n" +
+                    extra=("Current Code workspace: " + str(state) + "\n" + project_agent.CODE_MEMORY_NOTE + "\n" +
                            await run_in_threadpool(project_agent.project_rules, current_root)),
                     runner=runner, lsp=code_lsp.Client(runtime.owner_id, cache_id, current_root),
                     workflow=code_hooks.Runtime(runner, permissions, mode=mode, session_id=runtime.chat_id),

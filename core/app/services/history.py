@@ -1,16 +1,18 @@
 """История чата для модели и её сжатие.
 
-Длинный разговор не обрывается и не теряет начало: когда история перестаёт
-помещаться в бюджет контекста, старая часть сворачивается моделью в сводку.
-Сводка — системное сообщение чата (meta.kind = "summary"), вставленное сразу за
-последним свёрнутым сообщением. Всё, что раньше неё, модели больше не
-отправляется; всё, что позже, уходит как есть. Следующее сжатие дополняет
-предыдущую сводку, так что чат может длиться сколько угодно.
+Сжатие слоями и заранее, не впритык к окну. На 75% заполнения сначала ужимаются
+объёмные и быстро устаревающие результаты инструментов — остаются путь, команда
+и идентификатор. Если этого мало, старая часть диалога сворачивается в сводку,
+а последние ходы остаются дословно. Цель после сжатия — около 40% окна, чтобы
+следующее сжатие не началось сразу. Сводка — системное сообщение чата
+(meta.kind = "summary"). Всё, что раньше неё, модели больше не отправляется;
+следующее сжатие дополняет предыдущую сводку.
 """
 from __future__ import annotations
 
 import json
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,19 +26,33 @@ KEEP_RECENT = 6  # последние сообщения всегда уходя
 DEFAULT_BUDGET = 80_000  # токенов истории, если размер контекста модели не задан
 SUMMARY_MAX_OUTPUT = 4096
 _ITEM_CHARS = 12_000  # одно сообщение в сводке длиннее не нужно
+# Сжимать заранее: старт на 75% окна, цель — около 40%, не впритык к 100%.
+FILL_TRIGGER = 0.75
+FILL_TARGET = 0.40
 
 SUMMARY_PROMPT = (
     "Ты сжимаешь историю рабочего разговора, чтобы продолжить работу без неё. Напиши сводку "
-    "на языке разговора, по пунктам:\n"
-    "1. Цель и задачи пользователя.\n"
-    "2. Принятые решения и договорённости (стек, стиль, ограничения).\n"
-    "3. Что уже сделано: файлы и изменения по путям.\n"
-    "4. Текущее состояние и нерешённые проблемы.\n"
-    "5. Следующие шаги.\n"
-    "6. Важные детали дословно: имена, пути, значения, требования пользователя.\n"
-    "Не выдумывай и не пересказывай лишнего. Только сводка, без вступления."
+    "на языке разговора, по пунктам, и ничего не выдумывай:\n"
+    "1. Исходная задача и ограничения.\n"
+    "2. Принятые решения и почему они приняты (стек, стиль, договорённости).\n"
+    "3. Текущий план и статус: что уже сделано, по путям файлов.\n"
+    "4. Нерешённые ошибки и что из-за них заблокировано.\n"
+    "5. Важные пути, команды и идентификаторы — дословно.\n"
+    "6. Что нельзя забыть: предпочтения пользователя и явные запреты.\n"
+    "7. Следующий шаг.\n"
+    "Только сводка, без вступления."
+)
+CHECK_PROMPT = (
+    "Проверь сводку рабочего разговора. Если по ней можно ответить, что делается, зачем и что уже "
+    "сделано, ответь ровно: ДОСТАТОЧНО. Если нельзя — ответь НЕ ХВАТАЕТ: и перечисли, чего не хватает. "
+    "Ничего больше не пиши."
 )
 SUMMARY_HEADER = "Сводка более ранней части разговора (старые сообщения свёрнуты, чтобы уместиться в контекст):\n"
+PROGRESS_FILE = ".layla/progress.md"
+PROGRESS_REMINDER = (
+    "Контекст сжат. До следующей правки сверься с .layla/progress.md: что делается, зачем и что уже "
+    "сделано. Не начинай задачу заново."
+)
 
 
 def is_summary(message: Message) -> bool:
@@ -122,8 +138,16 @@ async def build(session: AsyncSession, chat: Chat) -> list[dict]:
 
 
 def budget(caps: dict) -> int:
+    """Порог, с которого пора сжимать: 75% окна, либо запас по умолчанию."""
     context = caps.get("context")
-    return max(2048, int(context * 0.6)) if context else DEFAULT_BUDGET
+    return max(2048, int(context * FILL_TRIGGER)) if context else DEFAULT_BUDGET
+
+
+def target(caps: dict) -> int:
+    """Куда сжимать: около 40% окна, чтобы следующий ход не упёрся сразу."""
+    context = caps.get("context")
+    goal = max(2048, int(context * FILL_TARGET)) if context else DEFAULT_BUDGET
+    return min(goal, budget(caps))
 
 
 def tokens(payload: list[dict]) -> int:
@@ -145,8 +169,18 @@ def _transcript(items: list[dict]) -> list[str]:
     return out
 
 
-async def summarize(provider, key, model: str, caps: dict, previous: str | None, items: list[dict],
-                    on_event=None) -> str:
+async def _complete(provider, key, model, caps, conversation, on_event=None) -> str:
+    text = ""
+    async for kind, value in project_agent._turn(provider, key, model, conversation, [], caps):
+        if kind == "done":
+            text = "".join(value[0])
+        elif on_event is not None and kind in ("retry", "key"):
+            await on_event(kind, value)
+    return text.replace(project_agent.LENGTH_NOTE, "").strip()
+
+
+async def _summarize_body(provider, key, model: str, caps: dict, previous: str | None, items: list[dict],
+                          on_event=None) -> str:
     """Свернуть сообщения в сводку. Очень длинную историю — по частям, дополняя сводку."""
     turn_caps = {k: v for k, v in caps.items() if k not in ("temperature",)}
     limit = caps.get("max_output_cap") or caps.get("max_output") or SUMMARY_MAX_OUTPUT
@@ -167,16 +201,33 @@ async def summarize(provider, key, model: str, caps: dict, previous: str | None,
         request = ("Предыдущая сводка:\n" + summary + "\n\n" if summary else "") + \
             "Сообщения, которые нужно добавить в сводку:\n\n" + "\n\n".join(chunk)
         conversation = [{"role": "system", "content": SUMMARY_PROMPT}, {"role": "user", "content": request}]
-        text = ""
-        async for kind, value in project_agent._turn(provider, key, model, conversation, [], turn_caps):
-            if kind == "done":
-                text = "".join(value[0])
-            elif on_event is not None:
-                await on_event(kind, value)
-        text = text.replace(project_agent.LENGTH_NOTE, "").strip()
+        text = await _complete(provider, key, model, turn_caps, conversation, on_event)
         if text:
             summary = text
     return summary.strip()
+
+
+async def summarize(provider, key, model: str, caps: dict, previous: str | None, items: list[dict],
+                    on_event=None) -> str:
+    """Сводка и одна проверка: если по ней неясно, что делается, сводка переписывается один раз."""
+    summary = await _summarize_body(provider, key, model, caps, previous, items, on_event)
+    if not summary:
+        return ""
+    turn_caps = {k: v for k, v in caps.items() if k not in ("temperature",)}
+    limit = caps.get("max_output_cap") or caps.get("max_output") or SUMMARY_MAX_OUTPUT
+    turn_caps["max_output"] = min(1024, limit)
+    try:
+        verdict = await _complete(provider, key, model, turn_caps, [
+            {"role": "system", "content": CHECK_PROMPT}, {"role": "user", "content": summary}], on_event)
+    except Exception:  # noqa: BLE001 — проверка не должна срывать уже готовую сводку
+        return summary
+    if "НЕ ХВАТАЕТ" not in verdict.upper():
+        return summary
+    repaired = await _summarize_body(
+        provider, key, model, caps, summary,
+        [{"role": "user", "content": "Проверка сводки: " + verdict + "\nДополни сводку, не теряя уже записанные факты."}],
+        on_event)
+    return repaired or summary
 
 
 async def compact(session: AsyncSession, chat: Chat, provider, key, model: str, caps: dict, *,
@@ -213,8 +264,22 @@ async def compact(session: AsyncSession, chat: Chat, provider, key, model: str, 
 
 RUN_BUDGET = 100_000  # токенов на ход, если контекст модели не задан
 KEEP_ROUNDS = 2  # последние шаги агента не трогаем
-_HIDDEN = "содержимое скрыто для экономии контекста — прочитайте файл заново, если нужно"
+_HIDDEN = "содержимое скрыто — источник указан выше, прочитайте его заново, только если оно ещё нужно"
 _BIG_ARGS = ("content", "new_string", "old_string")
+_REF_KEYS = ("path", "sha256", "command", "exit_code", "query", "url", "id", "name", "pattern", "error")
+
+
+def _clip(value, limit: int = 200):
+    if isinstance(value, str) and len(value) > limit:
+        return value[:limit] + "…"
+    return value
+
+
+def _reference(data: dict) -> dict:
+    slim = {key: _clip(data[key]) for key in _REF_KEYS
+            if key in data and not isinstance(data[key], (dict, list))}
+    slim["note"] = _HIDDEN
+    return slim
 
 
 def _shrink_tool(message: dict) -> dict | None:
@@ -222,15 +287,18 @@ def _shrink_tool(message: dict) -> dict | None:
         data = json.loads(message.get("content") or "")
     except ValueError:
         data = None
-    if isinstance(data, dict) and "content" in data and "sha256" in data:
+    bulky = len(message.get("content") or "") > 800
+    if isinstance(data, dict) and "content" in data and "sha256" in data and len(str(data.get("content") or "")) > 800:
         slim = {"path": data.get("path"), "sha256": data["sha256"], "note": _HIDDEN}
-    elif isinstance(data, dict) and "exit_code" in data and len(str(data.get("output") or "")) > 1500:
-        # Вывод команды: важен конец (итог тестов, текст ошибки).
-        slim = {**data, "output": "…" + data["output"][-1200:]}
+    elif isinstance(data, dict) and "exit_code" in data and len(str(data.get("output") or "")) > 400:
+        slim = _reference(data)
+        slim.pop("output", None)
+    elif isinstance(data, dict) and bulky and any(key in data for key in ("query", "pattern", "url", "matches", "results")):
+        slim = _reference(data)
     elif isinstance(data, dict) and isinstance(data.get("files"), list) and len(data["files"]) > 40:
         slim = {"files": data["files"][:40], "note": f"ещё {len(data['files']) - 40} — список сокращён"}
-    elif len(message.get("content") or "") > 2000:
-        return {**message, "content": message["content"][:1500] + "…[сокращено]"}
+    elif bulky:
+        return {**message, "content": (message["content"] or "")[:240] + "…[сокращено]"}
     else:
         return None
     return {**message, "content": json.dumps(slim, ensure_ascii=False)}
@@ -254,12 +322,15 @@ def _shrink_call(message: dict) -> dict | None:
 
 
 def shrink_run(conversation: list[dict], anchor: dict, caps: dict, *, include_previous=False) -> int:
-    """Ужать старые результаты инструментов и аргументы записей в текущем ходе."""
+    """Первый слой: старые результаты инструментов заменить ссылками, пока ход не уложится в цель.
+
+    Срабатывает на 75% окна. Последние два шага не трогаются — ими модель пользуется сейчас.
+    """
     context = caps.get("context")
-    limit = (context - (caps.get("max_output") or 8192) - 256) if context else RUN_BUDGET
-    limit = max(limit, 2048)
+    trigger = budget(caps) if context else RUN_BUDGET
+    goal = target(caps) if context else RUN_BUDGET
     total = tokens(conversation)
-    if total <= limit:
+    if total <= trigger:
         return 0
     start = 1 if include_previous else next(i for i, m in enumerate(conversation) if m is anchor) + 1
     rounds = [i for i in range(start, len(conversation))
@@ -269,7 +340,7 @@ def shrink_run(conversation: list[dict], anchor: dict, caps: dict, *, include_pr
     for index in range(start, stop):
         if conversation[index] is anchor:
             continue
-        if total <= limit:
+        if total <= goal:
             break
         message = conversation[index]
         slim = _shrink_tool(message) if message["role"] == "tool" else _shrink_call(message)
@@ -278,3 +349,95 @@ def shrink_run(conversation: list[dict], anchor: dict, caps: dict, *, include_pr
             conversation[index] = slim
             shrunk += 1
     return shrunk
+
+
+def _fold_span(conversation: list[dict], anchor: dict) -> tuple[int, int] | None:
+    """Старые сообщения до текущего вопроса, кроме последних KEEP_RECENT и системных."""
+    try:
+        anchor_at = next(i for i, message in enumerate(conversation) if message is anchor)
+    except StopIteration:
+        return None
+    start = 0
+    while start < anchor_at and conversation[start].get("role") == "system":
+        start += 1
+    before = [i for i in range(start, anchor_at) if conversation[i].get("role") != "system"]
+    if len(before) <= KEEP_RECENT:
+        return None
+    drop = before[:-KEEP_RECENT]
+    lo, hi = drop[0], drop[-1] + 1
+    while lo > start and conversation[lo].get("role") == "tool":
+        lo -= 1
+    protected = before[-KEEP_RECENT]
+    if hi > protected:
+        hi = protected
+    while hi > lo and conversation[hi - 1].get("role") == "tool":
+        hi -= 1
+    if hi > lo and conversation[hi - 1].get("role") == "assistant" and conversation[hi - 1].get("tool_calls"):
+        hi -= 1
+    if hi <= lo:
+        return None
+    return lo, hi
+
+
+def _protocol_items(messages: list[dict]) -> list[dict]:
+    items = []
+    for item in messages:
+        content = item.get("content") or ""
+        if item.get("tool_calls"):
+            content += "\nTool calls: " + json.dumps(item["tool_calls"], ensure_ascii=False)[:_ITEM_CHARS]
+        if content:
+            items.append({"role": item.get("role") or "user", "content": content})
+    return items
+
+
+async def fold_old(provider, key, model, conversation: list[dict], anchor: dict, caps: dict, *,
+                   on_event=None) -> int:
+    """Второй слой: если после ссылок всё ещё тесно, свернуть старый префикс в одну сводку."""
+    if tokens(conversation) <= budget(caps):
+        return 0
+    span = _fold_span(conversation, anchor)
+    if span is None:
+        return 0
+    lo, hi = span
+    chunk = conversation[lo:hi]
+    # Сводка чата уже сделана до хода. Здесь сворачивается только журнал инструментов,
+    # который в короткую историю не попал. Обычный диалог без инструментов не трогаем.
+    if not any(message.get("role") == "tool" or message.get("tool_calls") for message in chunk):
+        return 0
+    if tokens(chunk) < max(400, int((caps.get("context") or DEFAULT_BUDGET) * 0.1)):
+        return 0
+    items = _protocol_items(chunk)
+    if not items:
+        return 0
+    previous = next((message.get("content", "").removeprefix(SUMMARY_HEADER)
+                     for message in conversation[:lo]
+                     if message.get("role") == "system" and str(message.get("content") or "").startswith(SUMMARY_HEADER)),
+                    None)
+    text = await summarize(provider, key, model, caps, previous, items, on_event=on_event)
+    if not text:
+        return 0
+    removed = hi - lo
+    conversation[lo:hi] = [{"role": "system", "content": SUMMARY_HEADER + text}]
+    return removed
+
+
+def memory_note(root: str) -> str:
+    """Заметки прогресса, которые переживают сжатие. Файл ведёт сам агент."""
+    path = Path(root) / ".layla" / "progress.md"
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return PROGRESS_REMINDER + " Заметок ещё нет — запиши их в .layla/progress.md, когда статус ясен."
+    if len(text) > 6000:
+        text = text[:3000] + "\n…\n" + text[-2000:]
+    return PROGRESS_REMINDER + "\n\n.layla/progress.md:\n" + text
+
+
+def attach_memory(conversation: list[dict], root: str) -> None:
+    """После сжатия подложить внешние заметки к сводке, один раз."""
+    note = memory_note(root)
+    for message in conversation:
+        if message.get("role") == "system" and str(message.get("content") or "").startswith(SUMMARY_HEADER):
+            if note not in (message.get("content") or ""):
+                message["content"] += "\n\n" + note
+            return

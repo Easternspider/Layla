@@ -531,7 +531,8 @@ class Manager:
                     summary["events"] = [{key: value for key, value in event.items()
                                           if key not in ("output", "command")}
                                          for event in result["worker"]["events"][-8:]]
-                    results.append({"worker": summary, "output_tail": result["output"][-6000:]})
+                    summary["report"] = (summary.get("report") or "")[:1500]
+                    results.append({"worker": summary, "output_tail": result["output"][-800:]})
                     self.attached.discard(worker_id)
                     break
                 await asyncio.sleep(0.5)

@@ -36,6 +36,77 @@ def test_long_run_shrinks_old_tool_results_but_keeps_recent_rounds():
     assert conversation[1] is anchor
 
 
+def test_old_command_log_becomes_a_reference():
+    anchor = {"role": "user", "content": "проверь"}
+    log = "e" * 5000
+    conversation = [{"role": "system", "content": "sys"}, anchor]
+    for i in range(3):
+        conversation += _round("run_command", {"command": f"pytest {i}"},
+                               {"command": f"pytest {i}", "exit_code": 1, "output": log}, f"c{i}")
+    assert history.shrink_run(conversation, anchor, {"context": 4000, "max_output": 200}) >= 1
+    first = json.loads(conversation[3]["content"])
+    assert first["command"] == "pytest 0" and first["exit_code"] == 1
+    assert "output" not in first and first["note"] == history._HIDDEN
+    assert json.loads(conversation[-1]["content"])["output"] == log
+
+
+def test_shrink_waits_until_the_window_is_three_quarters_full():
+    anchor = {"role": "user", "content": "привет"}
+    conversation = [{"role": "system", "content": "sys"}, anchor,
+                    *_round("read_file", {"path": "a"}, {"path": "a", "content": "x" * 3000, "sha256": "s"}, "c1")]
+    before = json.dumps(conversation)
+    # 3000 символов — это далеко не 75% окна в 40_000 токенов.
+    assert history.shrink_run(conversation, anchor, {"context": 40_000, "max_output": 1024}) == 0
+    assert json.dumps(conversation) == before
+
+
+@pytest.mark.asyncio
+async def test_fold_summarizes_the_old_prefix_and_keeps_recent_turns(monkeypatch):
+    anchor = {"role": "user", "content": "текущий вопрос"}
+    conversation = [{"role": "system", "content": "sys"}]
+    for i in range(8):
+        conversation.append({"role": "user" if i % 2 == 0 else "assistant", "content": f"#{i} " + "y" * 800})
+    conversation.append(anchor)
+    conversation.insert(2, {"role": "tool", "tool_call_id": "old", "content": "x" * 2000})
+
+    async def fake_summarize(_provider, _key, _model, _caps, _previous, items, on_event=None):
+        assert any("#0" in item["content"] for item in items)
+        assert all("#7" not in item["content"] for item in items)
+        return "задача жива, сделано начало"
+
+    monkeypatch.setattr(history, "summarize", fake_summarize)
+    removed = await history.fold_old(None, None, "m", conversation, anchor, {"context": 2000, "max_output": 200})
+    assert removed > 0
+    summary = next(m["content"] for m in conversation if m.get("role") == "system" and m["content"].startswith(history.SUMMARY_HEADER))
+    assert "задача жива" in summary
+    assert conversation[-1] is anchor
+    assert any("#7" in m.get("content", "") for m in conversation)
+
+
+def test_memory_note_is_attached_to_the_summary_once(tmp_path):
+    notes = tmp_path / ".layla"
+    notes.mkdir()
+    (notes / "progress.md").write_text("задача: сайт\nсделано: каркас", encoding="utf-8")
+    conversation = [{"role": "system", "content": history.SUMMARY_HEADER + "кратко"}]
+    history.attach_memory(conversation, str(tmp_path))
+    history.attach_memory(conversation, str(tmp_path))
+    assert conversation[0]["content"].count("задача: сайт") == 1
+    assert "что делается" in conversation[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_thin_summary_is_rewritten_once(monkeypatch):
+    replies = ["коротко", "НЕ ХВАТАЕТ: нет задачи", "задача: сайт. делается вёрстка. сделан каркас."]
+
+    async def fake_complete(_provider, _key, _model, _caps, conversation, on_event=None):
+        return replies.pop(0)
+
+    monkeypatch.setattr(history, "_complete", fake_complete)
+    text = await history.summarize(None, None, "m", {"context": 8000}, None,
+                                   [{"role": "user", "content": "сделай сайт"}])
+    assert "каркас" in text and replies == []
+
+
 def test_short_run_is_untouched():
     anchor = {"role": "user", "content": "привет"}
     conversation = [anchor, *_round("read_file", {"path": "a"}, {"path": "a", "content": "hi", "sha256": "s"}, "c1")]

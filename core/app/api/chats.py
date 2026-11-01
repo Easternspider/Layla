@@ -1260,7 +1260,10 @@ async def run_chat(
                             await persist()
                     elif "shrunk" in event:
                         await h.step(f"Длинная задача: {event['shrunk']} старых результатов инструментов "
-                                     "ужато, чтобы не упереться в контекст")
+                                     "заменены ссылками на источник")
+                    elif "folded" in event:
+                        await h.step(f"Старая часть диалога свёрнута в сводку ({event['folded']} сообщений), "
+                                     "последние ходы оставлены целиком")
                     elif "learned" in event:
                         # Запоминаем, чего модель не умеет, чтобы дальше сразу слать правильный запрос.
                         known = dict(prov.model_caps or {})

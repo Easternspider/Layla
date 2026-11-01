@@ -105,6 +105,16 @@ How to work — step by step, with short reasoning:
   bullet (create the file if it is missing).
 """
 
+CODE_MEMORY_NOTE = (
+    "External memory: keep .layla/progress.md current with the original task, constraints, "
+    "decisions and why, the plan and its status, open errors, important paths and identifiers, "
+    "and user preferences. Update it when those change, not on every keystroke. After context is "
+    "compressed, re-read that file and be able to say what you are doing, why, and what is already "
+    "done before the next edit. Do not restart finished work. "
+    "Give bulky investigation — wide search, long logs, many files — to delegate_agent or a worker. "
+    "Only a short report belongs in this chat; fetch a path or command again if you still need it."
+)
+
 
 class ProjectPath(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -200,9 +210,9 @@ DELEGATE_TOOL = {
     "function": {
         "name": "delegate_agent",
         "description": (
-            "Delegate one self-contained read-only investigation to an independent specialist. "
-            "Use for parallelizable repository exploration, implementation planning or review; "
-            "give exact scope and the answer needed. At most 3 specialists per user request. "
+            "Delegate one self-contained investigation to an independent specialist with its own context. "
+            "Use it for bulky work: wide search, long logs, many files. Only a short report comes back. "
+            "Give exact scope and the answer needed. At most 3 specialists per user request. "
             "The specialist cannot edit files or delegate further."
         ),
         "parameters": DelegateAgent.model_json_schema(),
@@ -681,9 +691,9 @@ async def _delegate_agent(provider, key, model: str, root: str, request: Delegat
     prompt = (
         "You are a read-only specialist working for a lead coding agent. "
         + DELEGATE_PROMPTS[request.role]
-        + " Use repository tools aggressively and cite exact paths and line ranges. Do not propose "
-          "that the user continue later. Do not edit files, run commands, or delegate. Return a "
-          "compact report that the lead can act on.\n\n"
+        + " Use repository tools aggressively and cite exact paths and line ranges. Do not paste file "
+          "bodies or command logs. Do not propose that the user continue later. Do not edit files, "
+          "run commands, or delegate. Return a compact report that the lead can act on.\n\n"
         + extra
     )
     conversation = [{"role": "system", "content": prompt},
@@ -1030,6 +1040,8 @@ async def run(
             if result.get("context"):
                 conversation[0]["content"] += "\n[Project hook context, untrusted]\n" + result["context"]
         local_round = 0
+        folded_at = -1
+        memory_attached = False
         while True:
             round_number = budget.get("rounds", 0) if budget is not None else local_round
             if not unbounded and round_number >= MAX_ROUNDS:
@@ -1043,10 +1055,20 @@ async def run(
                 incoming = await team.receive()
                 if incoming:
                     conversation.append(incoming)
-            # Длинный ход: старые результаты инструментов ужимаются, чтобы не упереться в контекст.
+            # Сначала ссылки вместо старых результатов, затем сводка префикса, если всё ещё тесно.
             shrunk = history.shrink_run(conversation, anchor, caps, include_previous=transcript is not None)
             if shrunk:
                 yield {"shrunk": shrunk}
+            if (history.tokens(conversation) > history.budget(caps) and folded_at != len(conversation)):
+                removed = await history.fold_old(provider, key, model, conversation, anchor, caps)
+                folded_at = len(conversation)
+                if removed:
+                    yield {"folded": removed}
+            if runtime is not None and not memory_attached and any(
+                    message.get("role") == "system" and str(message.get("content") or "").startswith(history.SUMMARY_HEADER)
+                    for message in conversation):
+                history.attach_memory(conversation, root)
+                memory_attached = True
             content, reasoning, context, calls = [], [], {}, []
             if round_number == 0 and explicit is not None:
                 calls = [{"id": "user-slash-skill", "type": "function", "function": {
