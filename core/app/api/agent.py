@@ -834,6 +834,8 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
         run.model = leader.model
         if body.provider_id:
             run.provider_id = await _bind_provider(session, user, body.provider_id)
+        if body.persona is not None:
+            run.budget_used = {**(run.budget_used or {}), 'persona': body.persona}
         job = Job(owner_id=user.id, domain='pentest', kind='pentest.worker', title=body.content[:200],
             status='queued', result={'engagement_id': eid, 'run_id': run.id, 'worker_id': leader.id})
         session.add(job)
@@ -843,7 +845,7 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
         model = await _pick_model(session, user, body.model)
         run = AgentRun(owner_id=user.id, domain=Domain.pentest, engagement_id=eid,
             task=body.content, model=model, provider_id=await _bind_provider(session, user, body.provider_id),
-            status=AgentRunStatus.running, budget_used={'max_workers': 3})
+            status=AgentRunStatus.running, budget_used={'max_workers': 3, 'persona': body.persona is not False})
         session.add(run)
         await session.flush()
         leader = (await pentest_workers.reserve(session, run, [{'task': body.content, 'role': 'lead'}], lead=True))[0]
