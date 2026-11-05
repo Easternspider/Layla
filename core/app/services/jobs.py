@@ -261,7 +261,8 @@ async def _run(sessionmaker, job_id: str, worker) -> None:
             job.status = "running"
             await session.commit()
             heartbeat = asyncio.create_task(_heartbeat(sessionmaker, job_id))
-            async with asyncio.timeout(3600):
+            limit = 9 * 3600 if job.kind == "pentest.worker" else 3600
+            async with asyncio.timeout(limit):
                 await worker(JobHandle(session, job))
     except asyncio.CancelledError:
         status, error = ("error", "Прервано перезапуском сервера. История и файлы сохранены.") if _shutting_down else (

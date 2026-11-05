@@ -8,6 +8,7 @@ scope/venue/egress-гейт и HITL-подтверждение оператор�
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -843,9 +844,13 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
         leader.job_id = job.id
     else:
         model = await _pick_model(session, user, body.model)
+        budget = {'max_workers': 3, 'persona': body.persona is not False}
+        if body.overnight:
+            budget['work_until'] = (datetime.now(UTC) + timedelta(hours=8)).isoformat()
+            budget['min_passes'] = 4
         run = AgentRun(owner_id=user.id, domain=Domain.pentest, engagement_id=eid,
             task=body.content, model=model, provider_id=await _bind_provider(session, user, body.provider_id),
-            status=AgentRunStatus.running, budget_used={'max_workers': 3, 'persona': body.persona is not False})
+            status=AgentRunStatus.running, budget_used=budget)
         session.add(run)
         await session.flush()
         leader = (await pentest_workers.reserve(session, run, [{'task': body.content, 'role': 'lead'}], lead=True))[0]

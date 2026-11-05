@@ -267,14 +267,16 @@ async def launch_batch(
                 task = (f"Проведи авторизованный пентест {engagement.target}. "
                         "Scope этого engagement уже подтверждён и относится только к этой цели. "
                         f"Площадка — {place}, наступательные действия включены. "
-                        "Начни с разведки и доводи признаки до доказанного влияния.")
+                        "Начни с разведки и доводи признаки до доказанного влияния. "
+                        "Один проход не закрывает задачу: ищи следующими проходками до конца ночного окна.")
             try:
                 await agent_chat(engagement.id, AgentChatCreate(
                     content=task[:20000],
                     mode="auto",
                     model=(body.model or "").strip() or None,
                     provider_id=(body.provider_id or "").strip() or None,
-                    persona=False), user, session, maker)
+                    persona=False,
+                    overnight=True), user, session, maker)
                 started.append(engagement.id)
             except HTTPException as exc:
                 errors.append(f"{engagement.target}: {exc.detail}")
