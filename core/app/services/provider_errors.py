@@ -97,6 +97,12 @@ class CapabilityError(ProviderError):
 
 
 def classify_rejection(status: int, body: str) -> CapabilityError | None:
+    affordable = re.search(r"can only afford\s+(\d+)", body or "", re.IGNORECASE)
+    if affordable and status in (400, 402, 403, 500):
+        value = int(affordable.group(1))
+        if 16 <= value <= 2_000_000:
+            return CapabilityError(f"На ответ хватает только {value} токенов", capability="max_output",
+                                   value=value, status=status)
     if status not in (400, 404, 422):
         return None
     text = body.lower()

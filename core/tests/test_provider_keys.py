@@ -122,6 +122,9 @@ def test_status_decides_retry_and_key_switch():
     crowded = http_error(500, '{"error": {"message": "402 This request would exceed your available credits given your current in-flight requests. Retry after in-flight requests settle, or add credits."}}')
     assert crowded.retryable and not crowded.key_failed and crowded.retry_after == 45
     assert "одновременных обращений" in str(crowded)
+    from app.services.provider_errors import classify_rejection
+    short = classify_rejection(500, '{"error": {"message": "402 This request requires more credits, or fewer max_tokens. You requested up to 8192 tokens, but can only afford 2197."}}')
+    assert (short.capability, short.value) == ("max_output", 2197)
 
 
 # --- Запросы ------------------------------------------------------------------
