@@ -60,6 +60,11 @@ _TRANSIENT = re.compile(
     r"|rate.?limit|too many requests|capacity|unavailable|server_error|internal (server )?error|\bbusy\b",
     re.IGNORECASE,
 )
+# Кредит есть, но уже идущие запросы его заняли. Шлюз часто отдаёт это как HTTP 500.
+_IN_FLIGHT_CREDIT = re.compile(
+    r"in-flight requests|exceed your available credits",
+    re.IGNORECASE,
+)
 # Всё, похожее на ключ или токен, из текста ошибки убираем.
 _SECRET = re.compile(r"\b(?:sk|pk|rk)-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+|\b[A-Za-z0-9]{32,}\b")
 
@@ -168,6 +173,11 @@ def http_error(status: int, body: str, headers: httpx.Headers | None = None, *,
     """Понятная ошибка по коду ответа и причине от провайдера."""
     reason = provider_message(body, secret=secret)
     suffix = f": {reason}" if reason else ""
+    if _IN_FLIGHT_CREDIT.search(body or ""):
+        return ProviderError(
+            "Провайдер не взял запрос: слишком много одновременных обращений к модели. "
+            "Подождите, пока идущие запросы завершатся.",
+            retryable=True, retry_after=45, status=402, key_failed=False)
     retry = status in RETRYABLE_STATUS or bool(_TRANSIENT.search(body or ""))
     if status == 401:
         message = f"Провайдер не принял ключ (HTTP 401){suffix}. Проверьте ключ в «Настройки → Провайдеры»."
