@@ -1,6 +1,7 @@
 """Engagements, Scope и authorized-gate (спец. §5.4, §7.1, §7.2)."""
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -195,6 +196,9 @@ async def _operator_identity(session, user: User) -> dict:
     return {"company": company[:200], "responsible_name": responsible[:300], "employee_identifier": employee[:200]}
 
 
+BATCH_GAP_SECONDS = 5
+
+
 async def _arm(session, user: User, engagement: Engagement, mode: VenueMode, server: Server | None,
                route: EgressRoute) -> None:
     """Подтверждает scope этой цели, принимает декларацию и включает наступление на выбранной площадке."""
@@ -252,7 +256,9 @@ async def launch_batch(
         from app.schemas.agent import AgentChatCreate
         note = " ".join((body.instruction or "").split())
         place = "эта машина" if body.venue == VenueMode.this_machine else "выбранный attackbox"
-        for engagement in created:
+        for index, engagement in enumerate(created):
+            if index and BATCH_GAP_SECONDS:
+                await asyncio.sleep(BATCH_GAP_SECONDS)
             if note:
                 task = (f"Задача оператора для {engagement.target}: {note}\n"
                         "Это и есть задание. Не расширяй его до полного пентеста и не выходи за scope этой цели. "
@@ -267,7 +273,8 @@ async def launch_batch(
                     content=task[:20000],
                     mode="auto",
                     model=(body.model or "").strip() or None,
-                    provider_id=(body.provider_id or "").strip() or None), user, session, maker)
+                    provider_id=(body.provider_id or "").strip() or None,
+                    persona=False), user, session, maker)
                 started.append(engagement.id)
             except HTTPException as exc:
                 errors.append(f"{engagement.target}: {exc.detail}")
