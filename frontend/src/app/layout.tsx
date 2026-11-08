@@ -1,5 +1,6 @@
 import { ConfirmHost } from "@/components/ConfirmDialog";
 import type { Metadata } from "next";
+import "@fontsource-variable/inter";
 import "../styles/globals.css";
 import { Providers } from "./providers";
 

@@ -514,7 +514,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
       </article>)}
     </div>
     {error && <p role="alert" className="mx-5 mb-3 text-sm text-red-300">{error}</p>}
-    {job && <div role="status" className={`${running ? "job-live" : "mx-5"} mb-3 flex flex-wrap items-center gap-2 text-xs text-neutral-400`}>{running && <Loader2 className="h-4 w-4 animate-spin" />}<span className="min-w-0 flex-1 break-words">{running ? job.steps.at(-1)?.text || "Задача в очереди" : job.status === "error" ? job.error || "Ошибка выполнения" : job.status === "cancelled" ? "Остановлено" : "Готово"}</span>{running && <RunningNote start={job.created_at} ceiling={runningCeiling} />}{running && <button onClick={stop} className="icon-button" aria-label="Остановить задачу"><Square className="h-3 w-3" /></button>}</div>}
+    {job && <div role="status" className={`${running ? "job-live" : "mx-5"} mb-3 flex flex-wrap items-center gap-2 text-xs text-neutral-400`}>{running && <Loader2 className="h-4 w-4 animate-spin" />}<span className="min-w-0 flex-1 break-words">{running ? job.steps.at(-1)?.text || "Задача в очереди" : job.status === "error" ? job.error || "Ошибка выполнения" : job.status === "cancelled" ? "Остановлено" : "Готово"}</span>{running && <RunningNote start={job.created_at} ceiling={runningCeiling} />}</div>}
     {interrupted && <div className="mx-5 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/5 p-3 text-xs">
       <Play className="h-4 w-4 shrink-0 text-amber-200" /><span className="min-w-0 flex-1">Ход прерван. Уже сделанное сохранено — агент продолжит с того же места.</span>
       <button className="primary-button !px-3 !py-1.5 text-xs" onClick={() => send({ text: "Продолжи с того места, где остановился.", mode })}>Продолжить</button>
@@ -550,7 +550,9 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         <input ref={fileRef} type="file" multiple className="hidden" aria-label="Приложить файлы" onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
         <button aria-label="Приложить файлы" title="Файл любого формата, включая zip, до 50 МБ" disabled={running || sending} onClick={() => fileRef.current?.click()} className="icon-button mb-1"><Paperclip className="h-4 w-4" /></button>
         <textarea aria-label="Сообщение агенту" rows={3} value={input} onChange={e => { setInput(e.target.value); remember(`${scope}:draft:${chatId || "new"}`, e.target.value); }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} placeholder={running ? "Задача выполняется. Для другой задачи создайте новый чат." : mode === "plan" ? "Опишите задачу — агент предложит план…" : "Опишите задачу…"} className="min-w-0 flex-1 resize-none bg-transparent p-2 text-sm outline-none" />
-        <button aria-label="Отправить" onClick={() => send()} disabled={(!input.trim() && !files.length) || running || sending || loading || !ready} className="primary-button h-11 w-11 shrink-0 !p-0">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
+        {running
+          ? <button aria-label="Остановить" title="Остановить задачу" onClick={stop} className="stop-button shrink-0"><Square className="h-4 w-4" /></button>
+          : <button aria-label="Отправить" onClick={() => send()} disabled={(!input.trim() && !files.length) || sending || loading || !ready} className="primary-button h-11 w-11 shrink-0 !p-0">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>}
       </div>
       <p className="px-2 pt-2 text-[11px] text-neutral-500">{MODES.find(m => m.id === mode)?.hint}. Можно приложить файлы любого формата, включая zip: агент разберёт их и при необходимости скачает инструмент. Адреса из раздела Пентест здесь не открываются. Работа продолжается в фоне.</p>
     </div>
