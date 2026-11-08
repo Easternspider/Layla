@@ -223,7 +223,7 @@ function CaseWorkspace({ item, onDelete, onBusy }: { item: OsintCase; onDelete: 
 
 function CasePanel({ id, onDelete, onBusy }: { id: string; onDelete: () => void; onBusy: (busy: boolean) => void }) {
   const query = useQuery({ queryKey: ["osint", id], queryFn: () => api.get<OsintCase>(`/osint/cases/${id}`) });
-  if (query.isPending) return <p className="p-6 text-sm text-neutral-500">Загрузка кейса…</p>;
+  if (query.isPending) return <div className="flex flex-col gap-4 p-6" role="status" aria-label="Загрузка кейса"><div className="skeleton h-6 w-1/3" /><div className="skeleton h-4 w-2/3" /><div className="skeleton h-4 w-1/2" /><div className="skeleton h-28 w-full rounded-2xl" /><p className="sr-only">Загрузка кейса…</p></div>;
   if (query.error) return <div className="p-6"><ErrorNotice error={query.error} /></div>;
   return <CaseWorkspace item={query.data} onDelete={onDelete} onBusy={onBusy} />;
 }
