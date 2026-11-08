@@ -155,7 +155,7 @@ export function AgentDomain() {
             <p className="text-[11px] text-neutral-500">{server.port} · {server.auth === "password" ? "пароль" : "ключ"} · {server.status}</p>
           </span>
         </label>)}
-        {!servers.data?.length && <p className="px-2 text-xs text-neutral-500">Добавьте сервер, и агент сможет проверить его и поставить пакеты.</p>}
+        {!servers.data?.length && <p className="px-2 text-xs text-neutral-500">SSH-машин нет: агент работает на этом сервере целиком, а не только в песочнице проекта.</p>}
         <p className="px-2 pt-3 text-sm font-medium">Субагенты</p>
         <p className="px-2 text-[11px] leading-4 text-neutral-500">Не больше трёх. Ведущий сам открывает сайты, смотрит картинки и решает капчу.</p>
         {!chatId && <p className="px-2 text-xs text-neutral-500">Откройте задачу, чтобы видеть субагентов.</p>}

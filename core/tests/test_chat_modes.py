@@ -85,7 +85,7 @@ async def test_plan_mode_offers_only_read_tools(client, monkeypatch):
         "git_status", "git_log", "git_diff", "git_conflicts",
         "browse_open", "browse_look", "browse_see", "browse_scroll", "browse_back",
         "list_agents", "read_agent", "wait_agents",
-        "list_servers", "server_status", "server_read", "lookup_cve", "search_cves",
+        "list_servers", "server_status", "server_read", "host_read", "lookup_cve", "search_cves",
         "read_inbox", "tool_catalog",
     }
     assert "write_file" not in seen[0]["tools"] and "spawn_agent" not in seen[0]["tools"]

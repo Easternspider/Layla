@@ -96,6 +96,38 @@ def make_runner(work: Path, interrupt_key: str | None, via: tuple[str, int] | No
     return runner
 
 
+async def host_shell(command: str, *, timeout: int = 600) -> dict:
+    """Оболочка на машине, где запущена Layla. Секреты процесса в окружение не попадают."""
+    env = {
+        "PATH": os.environ.get("PATH") or "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": os.environ.get("HOME") or "/root",
+        "LANG": os.environ.get("LANG") or "C.UTF-8",
+        "USER": os.environ.get("USER") or "",
+        "LOGNAME": os.environ.get("LOGNAME") or os.environ.get("USER") or "",
+        "TERM": "xterm",
+    }
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-lc", command,
+        cwd="/",
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        raw, _ = await asyncio.wait_for(proc.communicate(), timeout)
+    except TimeoutError as exc:
+        _kill(proc)
+        await proc.wait()
+        raise LocalExecError(f"Команда не завершилась за {timeout} c.") from exc
+    text = (raw or b"").decode("utf-8", errors="replace")
+    truncated = len(text) > MAX_OUTPUT
+    text = text[:MAX_OUTPUT]
+    if truncated:
+        text += "\n[…вывод обрезан на пределе.]"
+    return {"host": "this-machine", "exit_code": proc.returncode, "output": text, "truncated": truncated}
+
+
 async def run(command: str, work: Path, via: tuple[str, int] | None, *,
               interrupt_key: str | None = None, timeout: int = COMMAND_TIMEOUT,
               auth: tuple[str, str] | None = None) -> str:

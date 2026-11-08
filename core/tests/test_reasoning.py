@@ -274,7 +274,7 @@ async def test_review_mode_is_read_only(client, monkeypatch):
         "worktree_list", "worktree_diff", "worktree_read",
         "browse_open", "browse_look", "browse_see", "browse_scroll", "browse_back",
         "list_agents", "read_agent", "wait_agents",
-        "list_servers", "server_status", "server_read", "lookup_cve", "search_cves",
+        "list_servers", "server_status", "server_read", "host_read", "lookup_cve", "search_cves",
         "read_inbox", "tool_catalog",
     }
     assert "REVIEW MODE" in calls[0]["conversation"][0]["content"]
