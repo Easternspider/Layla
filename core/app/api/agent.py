@@ -7,6 +7,7 @@ scope/venue/egress-гейт и HITL-подтверждение оператор�
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -42,6 +43,8 @@ from app.services import audit, egress, files, jobs, local_exec, orchestrator, p
 from app.services.auth import get_current_user
 from app.services.egress import EgressBlocked
 from app.services.venue_gate import ActionBlocked
+
+logger = logging.getLogger("layla.agent")
 
 router = APIRouter(tags=["agent"])
 
@@ -432,6 +435,10 @@ async def approve_step(
     except venue_executor.NoExecutorConfigured as exc:
         step.status = "blocked"
         step.output = f"{exc}"
+    except Exception as exc:  # noqa: BLE001 — шаг обязан завершиться, а не зависнуть в running
+        logger.warning("agent step %s failed unexpectedly", step.id, exc_info=True)
+        step.status = "failed"
+        step.output = f"Внутренняя ошибка выполнения: {exc}"
     if server is not None and pin["host_key"] and server.host_key != pin["host_key"]:
         server.host_key = pin["host_key"]
     await audit.record(
@@ -466,12 +473,18 @@ async def stop_run(
     worker_jobs = list(await session.scalars(select(AgentWorker.job_id).where(
         AgentWorker.run_id == rid, AgentWorker.status.in_(("queued", "running", "awaiting_approval")))))
     summary_id = run.trace_ref
+    owner_id, engagement_id = run.owner_id, run.engagement_id
     await session.rollback()
     for jid in worker_jobs:
         if jid:
             await jobs.cancel(jid, maker)
     if summary_id:
         await jobs.cancel(summary_id, maker)
+    # setsid-фон на площадке не ловится interrupt'ом — добиваем отдельной командой.
+    from app.services import pentest_workers
+    async with maker() as clean:
+        await pentest_workers.kill_background_processes(
+            clean, owner_id=owner_id, engagement_id=engagement_id, run_id=rid)
     await session.refresh(run)
     return await _run_out(session, run)
 
