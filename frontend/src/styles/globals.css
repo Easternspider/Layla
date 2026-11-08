@@ -11,7 +11,7 @@
     --dur-enter: 320ms;
   }
   html, body { height: 100%; }
-  body { @apply bg-ink-950 font-sans text-neutral-200 antialiased; line-height: 1.55; }
+  body { @apply bg-ink-950 font-sans text-neutral-200 antialiased; line-height: 1.55; font-synthesis: none; text-rendering: optimizeLegibility; }
   h1, h2, h3 { @apply tracking-tight; text-wrap: balance; font-weight: 600; }
   button, input, textarea, select, a, summary {
     -webkit-tap-highlight-color: transparent;
@@ -80,9 +80,9 @@
   .send-button { @apply grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent-600 text-white disabled:opacity-40; }
   .send-button:not(:disabled):hover { filter: brightness(1.12); }
   .send-button:not(:disabled):active { transform: scale(.92); }
-  .stop-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-full text-white; background: var(--red); }
-  .stop-button:hover { background: #ff5c52; }
-  .stop-button:active { transform: scale(.92); }
+  .stop-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-full text-white disabled:opacity-40; background: var(--red); }
+  .stop-button:not(:disabled):hover { background: #ff5c52; }
+  .stop-button:not(:disabled):active { transform: scale(.92); }
   .suggestion-chip { @apply rounded-full px-3 py-2 text-xs text-neutral-300; background: var(--raised); }
   .suggestion-chip:hover { background: var(--hover); }
 }
@@ -176,16 +176,6 @@
 .engagement-beacon-core { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 .engagement-beacon[data-active="true"] { color: #30D158; }
 .engagement-beacon[data-active="true"] .engagement-beacon-orbit { border-color: #30D158 transparent #30D158 transparent; opacity: 1; animation: orbit 2.4s linear infinite; }
-.empty-orb::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border: 1px solid rgb(var(--domain-rgb) / .5);
-  animation: orb-ring 2.8s var(--ease) infinite;
-  pointer-events: none;
-}
-@keyframes orb-ring { 0% { transform: scale(1); opacity: .8; } 70%, 100% { transform: scale(1.22); opacity: 0; } }
 /* Фон рабочего стола: два больших размытых пятна цвета домена, очень медленный дрейф. */
 .aurora-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden; background: #000; }
 .aurora-wash { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5; will-change: transform; }
@@ -264,7 +254,7 @@ textarea,
   color: var(--text);
   caret-color: var(--accent);
 }
-input:focus, select:focus, textarea:focus, .field-input:focus { outline: 2px solid rgb(10 132 255 / .7); outline-offset: 1px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, .field-input:focus-visible { outline: 2px solid rgb(var(--domain-rgb) / .7); outline-offset: 1px; }
 .domain-columns { gap: 10px !important; padding: 0 10px 10px !important; height: 100%; }
 .domain-list, .domain-list.is-chat, .settings-sidebar {
   width: 272px;
@@ -295,7 +285,7 @@ details, .settings-content > div > section, .settings-content section, .surface-
 }
 .chat-user { background: var(--raised) !important; border-radius: 18px !important; }
 .chat-model, .chat-assistant { background: transparent !important; }
-.chat-avatar { background: rgb(10 132 255 / .18) !important; color: #99c9ff !important; border-radius: 10px !important; }
+.chat-avatar { background: rgb(var(--domain-rgb) / .16) !important; color: var(--domain) !important; border-radius: 10px !important; }
 [role="dialog"] { background: rgb(0 0 0 / .55); }
 dialog::backdrop { background: rgb(0 0 0 / .55); backdrop-filter: blur(16px); }
 .appearance-preview { background: #000 !important; border: 1px solid rgb(255 255 255 / .08) !important; border-radius: 16px !important; }
@@ -312,7 +302,7 @@ dialog::backdrop { background: rgb(0 0 0 / .55); backdrop-filter: blur(16px); }
 }
 .chat-composer textarea { background: transparent !important; outline: none !important; }
 
-/* Акценты доменов — только цветовые переменные, без анимации. */
+/* Цветовой акцент домена; --domain плавно переходит при переключении раздела. */
 .app-shell[data-domain="code"] { --domain: #0A84FF; --domain-rgb: 10 132 255; }
 .app-shell[data-domain="pentest"] { --domain: #FF375F; --domain-rgb: 255 55 95; }
 .app-shell[data-domain="osint"] { --domain: #30D158; --domain-rgb: 48 209 88; }
@@ -352,7 +342,7 @@ details[open] > div { animation: fade-in 200ms var(--ease) both; }
   letter-spacing: .04em;
   color: #d1d1d6;
 }
-.chat-composer[data-live="true"] { box-shadow: inset 0 0 0 1px rgb(48 209 88 / .5), 0 0 22px -8px rgb(48 209 88 / .4) !important; }
+.chat-composer[data-live="true"] { box-shadow: inset 0 0 0 1px rgb(var(--domain-rgb) / .55) !important; }
 .tool-live { position: relative; }
 .tool-live::before {
   content: "";
@@ -364,10 +354,9 @@ details[open] > div { animation: fade-in 200ms var(--ease) both; }
 }
 .job-live {
   position: relative;
-  overflow: hidden;
   margin-left: 16px; margin-right: 16px;
   border-radius: 12px;
-  background: #1c1c1e;
+  background: var(--surface);
   padding: 8px 10px 8px 14px;
 }
 .job-live::before {
@@ -375,16 +364,8 @@ details[open] > div { animation: fade-in 200ms var(--ease) both; }
   position: absolute;
   inset: 0 auto 0 0;
   width: 2px;
+  border-radius: 2px;
   background: var(--green);
-}
-.job-live::after {
-  content: "";
-  position: absolute;
-  top: 0; bottom: 0;
-  width: 34%;
-  background: linear-gradient(90deg, transparent, rgb(var(--domain-rgb) / .14), transparent);
-  animation: sweep 2.6s var(--ease) infinite;
-  pointer-events: none;
 }
 .brand-kicker {
   margin-top: 3px;
