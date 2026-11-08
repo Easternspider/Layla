@@ -249,6 +249,10 @@ async def launch_batch(
         created.append(engagement)
     await session.commit()
     outs = [await _to_out(session, engagement) for engagement in created]
+    # id и target сохраняем до цикла: rollback после неудачного запуска истекает
+    # все ORM-объекты сессии, и обращение к ним дальше падает с MissingGreenlet.
+    created_ids = [e.id for e in created]
+    targets = {e.id: e.target for e in created}
     started: list[str] = []
     errors: list[str] = []
     if body.start:
@@ -256,30 +260,33 @@ async def launch_batch(
         from app.schemas.agent import AgentChatCreate
         note = " ".join((body.instruction or "").split())
         place = "эта машина" if body.venue == VenueMode.this_machine else "выбранный attackbox"
-        for index, engagement in enumerate(created):
+        for index, eid in enumerate(created_ids):
             if index and BATCH_GAP_SECONDS:
                 await asyncio.sleep(BATCH_GAP_SECONDS)
             if note:
-                task = (f"Задача оператора для {engagement.target}: {note}\n"
+                task = (f"Задача оператора для {targets[eid]}: {note}\n"
                         "Это и есть задание. Не расширяй его до полного пентеста и не выходи за scope этой цели. "
                         "Площадка и наступательные действия уже включены.")
             else:
-                task = (f"Проведи авторизованный пентест {engagement.target}. "
+                task = (f"Проведи авторизованный пентест {targets[eid]}. "
                         "Scope этого engagement уже подтверждён и относится только к этой цели. "
                         f"Площадка — {place}, наступательные действия включены. "
                         "Начни с разведки и доводи признаки до доказанного влияния. "
                         "Один проход не закрывает задачу: ищи следующими проходками до конца ночного окна.")
             try:
-                await agent_chat(engagement.id, AgentChatCreate(
+                await agent_chat(eid, AgentChatCreate(
                     content=task[:20000],
                     mode="auto",
                     model=(body.model or "").strip() or None,
                     provider_id=(body.provider_id or "").strip() or None,
                     persona=False,
                     overnight=True), user, session, maker)
-                started.append(engagement.id)
+                started.append(eid)
             except HTTPException as exc:
-                errors.append(f"{engagement.target}: {exc.detail}")
+                errors.append(f"{targets[eid]}: {exc.detail}")
+                await session.rollback()
+            except Exception as exc:  # noqa: BLE001 — один падающий запуск не рвёт весь batch
+                errors.append(f"{targets[eid]}: {type(exc).__name__}: {exc}")
                 await session.rollback()
     return EngagementBatchOut(engagements=outs, started=started, errors=errors)
 
@@ -350,6 +357,10 @@ async def revoke_authorization(eid: str, user: User = Depends(get_current_user),
     e.authorized, e.offensive_enabled = False, False
     await audit.record(session, actor=e.owner_id, action="authorization.revoke", target=eid)
     await session.commit()
+    # Отзыв блокирует новые команды; отсоединённый setsid-фон добиваем отдельно,
+    # иначе уже запущенные процессы продолжат обращения к цели без авторизации.
+    from app.services import pentest_workers
+    await pentest_workers.kill_background_processes(session, owner_id=e.owner_id, engagement_id=e.id)
     return await authorization.read(session, e)
 
 

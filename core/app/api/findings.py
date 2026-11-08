@@ -12,7 +12,7 @@ from app.models.enums import FindingStatus, Severity
 from app.models.pentest import Engagement, Finding, Report
 from app.models.user import User
 from app.models.pentest_workbench import EngagementRecord
-from app.schemas.pentest import FindingCreate, FindingOut, FindingUpdate, ReportOut
+from app.schemas.pentest import AcunetixImportRequest, FindingCreate, FindingOut, FindingUpdate, ReportOut
 from app.services import acunetix, audit, pentest_import
 from app.services.auth import get_current_user
 
@@ -126,15 +126,13 @@ async def delete_finding(
 @router.post("/import/acunetix", response_model=ReportOut, status_code=201)
 async def import_acunetix(
     eid: str,
-    body: dict,
+    body: AcunetixImportRequest,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ReportOut:
     """Импорт HTML-отчёта Acunetix с дедупликацией по (type,url,param)."""
     await _owned_engagement(session, user, eid)
-    html = body.get("html", "")
-    if not html:
-        raise HTTPException(status_code=400, detail="Пустой отчёт")
+    html = body.html
 
     report = await pentest_import.import_report(
         session, engagement_id=eid, html=html, user_id=user.id
