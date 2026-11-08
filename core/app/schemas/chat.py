@@ -12,6 +12,7 @@ class ChatCreate(BaseModel):
     domain: Domain = Domain.code
     title: str | None = None
     persona_id: str | None = None
+    layla_persona: bool = True
     model: str | None = None
     provider_id: str | None = None
     workspace_id: str | None = None
@@ -23,6 +24,7 @@ class ChatOut(BaseModel):
     domain: Domain
     title: str | None = None
     persona_id: str | None = None
+    layla_persona: bool = True
     model: str | None = None
     provider_id: str | None = None
     project_id: str | None = None
@@ -58,6 +60,7 @@ class SendMessageRequest(BaseModel):
     # auto — агент сам применяет изменения; confirm — каждое изменение ждёт «Применить»;
     # plan — только чтение и план, без изменений.
     mode: Literal["auto", "confirm", "plan", "review"] = "auto"
+    layla_persona: bool | None = None
     files: list[str] = Field(default_factory=list, max_length=20)
 
 

@@ -250,6 +250,14 @@ def test_rules_file_helper(tmp_path):
     assert rules.startswith("Project rules from LAYLA.md") and len(rules) < 21_000
 
 
+def test_provider_persona_drops_layla_name():
+    plain = project_agent.system_prompt(False)
+    assert "You are Layla" not in plain
+    assert "model provider" in plain
+    assert "list_files" in plain
+    assert project_agent.system_prompt(True).startswith("You are Layla")
+
+
 async def test_review_mode_is_read_only(client, monkeypatch):
     await _setup(client)
     calls: list = []

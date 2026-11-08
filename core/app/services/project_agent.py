@@ -105,6 +105,20 @@ How to work — step by step, with short reasoning:
   bullet (create the file if it is missing).
 """
 
+_LAYLA_OPENING = "You are Layla, the assistant for this conversation's isolated project. "
+_PROVIDER_PERSONA = (
+    "The assistant personality is set by the model provider. Do not introduce yourself as Layla "
+    "and do not replace the provider's persona. "
+)
+
+
+def system_prompt(persona: bool = True) -> str:
+    if persona:
+        return SYSTEM_PROMPT
+    body = SYSTEM_PROMPT[len(_LAYLA_OPENING):] if SYSTEM_PROMPT.startswith(_LAYLA_OPENING) else SYSTEM_PROMPT
+    return _PROVIDER_PERSONA + body
+
+
 CODE_MEMORY_NOTE = (
     "External memory: keep .layla/progress.md current with the original task, constraints, "
     "decisions and why, the plan and its status, open errors, important paths and identifiers, "
@@ -832,7 +846,7 @@ async def run(
     *, mode: str = "auto", approve=None, caps: dict | None = None, extra: str = "", runner=None,
     git=None, mcp=None, runtime=None, workers=None, worker_context=False, lsp=None, workflow=None, tool_allowlist=None,
     team=None, transcript=None, workspace=None, continuation=False, budget=None, ops=None, crew=None,
-    unbounded: bool = False,
+    unbounded: bool = False, persona: bool = True,
 ):
     """approve(event) -> "approve" | "reject" | "approve_all" — только для режима confirm.
 
@@ -921,7 +935,7 @@ async def run(
     if git_specs:
         run_note += GIT_NOTE
     prompt = (
-        SYSTEM_PROMPT
+        system_prompt(persona)
         + run_note
         + "\nOnly these tools are permitted for your persona: "
         + ", ".join(sorted(allowed_names))

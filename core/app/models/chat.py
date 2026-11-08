@@ -25,6 +25,8 @@ class Chat(UUIDPk, Timestamps, Base):
         ForeignKey("projects.id", ondelete="SET NULL"), index=True
     )
     persona_id: Mapped[str | None] = mapped_column(ForeignKey("personas.id", ondelete="SET NULL"))
+    # False — не представляться Лейлой: личность задаёт провайдер модели.
+    layla_persona: Mapped[bool] = mapped_column(default=True, server_default="1")
     title: Mapped[str | None] = mapped_column(String(300))
     model: Mapped[str | None] = mapped_column(String(200))
     # Выбранный провайдер: имя модели бывает у нескольких провайдеров.

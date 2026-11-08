@@ -199,6 +199,7 @@ export interface Chat {
   domain: string;
   title?: string | null;
   persona_id?: string | null;
+  layla_persona?: boolean;
   model?: string | null;
   provider_id?: string | null;
   server_ids?: string[];

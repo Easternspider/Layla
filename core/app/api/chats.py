@@ -528,6 +528,7 @@ async def create_chat(
         domain=body.domain,
         title=body.title or "Новый чат",
         persona_id=body.persona_id,
+        layla_persona=body.layla_persona,
         model=body.model,
         provider_id=provider_id,
         workspace_id=project.workspace_id if project else (body.workspace_id if body.domain == Domain.code else None),
@@ -691,6 +692,8 @@ async def send_message(
             project = await _owned_project(session, user, chat.project_id)
             root = _project_root(project)
         mcp = await _code_mcp(session, user.id, chat.persona_id) if root and chat.domain == Domain.code else None
+        if body.layla_persona is not None:
+            chat.layla_persona = body.layla_persona
         model = body.model or chat.model
         if not model:
             raise HTTPException(status_code=400, detail="Не выбрана модель")
@@ -761,6 +764,7 @@ async def send_message(
                     lsp=code_lsp.Client(user.id, chat.project_id, root) if chat.domain == Domain.code else None,
                     workflow=code_hooks.Runtime(code_runner.Runner(user.id, chat.project_id, root), permissions,
                                                 session_id=chat.id) if chat.domain == Domain.code else None,
+                    persona=chat.layla_persona,
                 )) as stream:
                     async for event in stream:
                         yield event
@@ -1046,6 +1050,8 @@ async def run_chat(
         if persona is None or (not persona.is_builtin and persona.owner_id != user.id):
             raise HTTPException(status_code=404, detail="Персона не найдена")
         permissions = persona.allowed_tools or []
+    if body.layla_persona is not None:
+        chat.layla_persona = body.layla_persona
     model = body.model or chat.model
     if not model:
         raise HTTPException(status_code=400, detail="Не выбрана модель")
@@ -1221,6 +1227,7 @@ async def run_chat(
                                                  workflow=code_hooks.Runtime(runner, permissions, mode=mode,
                                                                              session_id=chat_id) if domain == "code" else None,
                                                  transcript=transcript, ops=ops, crew=crew_lead,
+                                                 persona=chat.layla_persona,
                                                  **({"job_id": h.job.id} if runtime else {}))) as stream:
                 async for event in stream:
                     if "workspace" in event:

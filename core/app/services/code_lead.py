@@ -51,7 +51,7 @@ async def run(provider, key, model, messages, root, permissions=None, *, runtime
                            await run_in_threadpool(project_agent.project_rules, current_root)),
                     runner=runner, lsp=code_lsp.Client(runtime.owner_id, cache_id, current_root),
                     workflow=code_hooks.Runtime(runner, permissions, mode=mode, session_id=runtime.chat_id),
-                    unbounded=mode == "auto")) as stream:
+                    unbounded=mode == "auto", persona=_unused.get("persona", True))) as stream:
                     async for event in stream:
                         if "workspace_restart" in event:
                             messages = event["workspace_restart"]

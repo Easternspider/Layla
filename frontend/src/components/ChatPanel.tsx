@@ -94,6 +94,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [personaId, setPersonaId] = useState("");
+  const [laylaPersona, setLaylaPersona] = useState(domain !== "agent");
   const [model, setModel] = useState("");
   const [providerId, setProviderId] = useState("");
   const [sending, setSending] = useState(false);
@@ -225,14 +226,16 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
   const savedModel = detail.data?.model;
   const savedProvider = detail.data?.provider_id;
   const savedId = detail.data?.id;
+  const savedLayla = detail.data?.layla_persona;
   useEffect(() => {
     if (savedId) {
       setPersonaId(savedPersona || "");
+      setLaylaPersona(savedLayla !== false);
       if (savedModel) setModel(savedModel);
       // Провайдер тоже из чата: у разных провайдеров модели могут называться одинаково.
       if (savedProvider) setProviderId(savedProvider);
     }
-  }, [savedId, savedModel, savedPersona, savedProvider]);
+  }, [savedId, savedModel, savedPersona, savedProvider, savedLayla]);
   useEffect(() => { if (!model && models.length) { setModel(models[0].name); setProviderId(models[0].provider_id); } }, [model, models]);
   // Имя модели может встречаться у нескольких провайдеров, поэтому пикер хранит
   // пару «провайдер+модель». Если провайдер неизвестен (модель восстановлена из
@@ -311,7 +314,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
     try {
       if (!id) {
         const title = (content || attached.map(file => file.name).join(", ")).slice(0, 80);
-        const fields = { title, persona_id: personaId || null, model, provider_id: selected?.provider_id || null };
+        const fields = { title, persona_id: personaId || null, layla_persona: laylaPersona, model, provider_id: selected?.provider_id || null };
         const chat = ownChat
           ? await api.post<Chat>("/agent/chats", fields)
           : await api.post<Chat>("/chats", { ...fields, domain, project_id: projectId || null });
@@ -325,7 +328,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         paths.push(item.path);
       }
       if (!request.current || request.current.content !== content || request.current.chat !== id) request.current = { content, chat: id, id: newRequestId() };
-      await api.post<Job>(ownChat ? `/agent/chats/${id}/run` : `/chats/${id}/run`, { content: content || "Обработай приложенные файлы.", model, provider_id: selected?.provider_id, request_id: request.current.id, mode: runMode, files: paths });
+      await api.post<Job>(ownChat ? `/agent/chats/${id}/run` : `/chats/${id}/run`, { content: content || "Обработай приложенные файлы.", model, provider_id: selected?.provider_id, request_id: request.current.id, mode: runMode, files: paths, layla_persona: laylaPersona });
       if (!override) {
         remember(`${scope}:draft:${chatId || "new"}`, "");
         if (version === generation.current) { setInput(""); setFiles([]); }
@@ -497,7 +500,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         <p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
       </details> : <article key={m.id} className={`chat-message min-w-0 ${m.role === "user" ? "chat-user ml-auto max-w-[90%] rounded-2xl bg-accent-500/15 p-4" : "chat-model rounded-2xl bg-ink-800/40 p-4"}`}>
         <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-neutral-500">
-          <span className="msg-role flex-1">{m.role === "user" ? "Вы" : "Layla"}</span>
+          <span className="msg-role flex-1">{m.role === "user" ? "Вы" : laylaPersona ? "Layla" : "Агент"}</span>
           {m.meta?.rolled_back && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-normal text-amber-200">Изменения откатены</span>}
           {m.role === "assistant" && m.meta?.checkpoint && !m.meta.rolled_back && !running && <button onClick={() => rollback(m.id)} title="Вернуть файлы к состоянию до этого ответа" className="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-normal text-neutral-500 hover:bg-ink-700 hover:text-neutral-200"><Undo2 className="h-3.5 w-3.5" />Откатить к этой точке</button>}
         </div>
@@ -539,6 +542,7 @@ export function ChatPanel({ domain, projectId, onFileChange, onOpenFile, onProje
         {domain === "code" && projectId && <CodeSkillPicker key={`${owner}:${projectId}`} projectId={projectId} disabled={running || sending}
           onChoose={name => { const text = `/${name} ${input}`; setInput(text); remember(`${scope}:draft:${chatId || "new"}`, text); }} />}
         <select aria-label="Персона" value={personaId} disabled={!!chatId || sending} onChange={e => pickPersona(e.target.value)} className="min-w-0 max-w-full rounded-lg bg-ink-900 px-3 py-2"><option value="">Без персоны</option>{personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+        {domain === "agent" && <button type="button" aria-pressed={laylaPersona} aria-label="Личность Layla" title="Выключите, если личность задана у провайдера модели" className={laylaPersona ? "primary-button text-xs" : "secondary-button text-xs"} onClick={() => setLaylaPersona(value => !value)}>{laylaPersona ? "Личность Layla" : "Личность провайдера"}</button>}
         <select aria-label="Модель" value={choice} disabled={running || sending} onChange={e => pickModel(e.target.value)} className="min-w-0 max-w-full rounded-lg bg-ink-900 px-3 py-2">{!models.length && <option value="">Нет активных моделей</option>}{models.map(m => <option key={`${m.provider_id}|${m.name}`} value={`${m.provider_id}|${m.name}`}>{m.name} · {m.provider}</option>)}</select>
       </div>
       {!!files.length && <div className="mb-2 flex flex-wrap gap-1">{files.map((file, index) => <span key={`${file.name}-${index}`} className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200">{file.name}<button aria-label={`Убрать ${file.name}`} onClick={() => setFiles(current => current.filter((_, at) => at !== index))} className="text-neutral-400 hover:text-white"><X className="h-3 w-3" /></button></span>)}</div>}
