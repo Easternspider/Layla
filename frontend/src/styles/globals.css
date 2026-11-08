@@ -141,6 +141,22 @@
 @keyframes sweep { from { left: -40%; } to { left: 110%; } }
 @keyframes aurora-drift-a { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(6%, 5%, 0) scale(1.08); } }
 @keyframes aurora-drift-b { from { transform: translate3d(0, 0, 0) scale(1.05); } to { transform: translate3d(-5%, -6%, 0) scale(1); } }
+@keyframes skeleton-shimmer { to { transform: translateX(100%); } }
+
+/* Плавная смена доменного акцента: --domain зарегистрирован как цвет и переходит за 500 мс. */
+@property --domain { syntax: "<color>"; inherits: true; initial-value: #0A84FF; }
+.app-shell, .login-shell { transition: --domain 500ms var(--ease); }
+
+/* Заглушки загрузки: ровная поверхность с мягким пробегом света. */
+.skeleton { position: relative; overflow: hidden; border-radius: 12px; background: var(--raised); }
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / .05), transparent);
+  animation: skeleton-shimmer 1.8s var(--ease) infinite;
+}
 @media (max-width: 640px) {
   input:not([type="checkbox"]):not([type="radio"]), select, textarea, .chat-composer textarea { font-size: 16px; }
   .settings-content .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
