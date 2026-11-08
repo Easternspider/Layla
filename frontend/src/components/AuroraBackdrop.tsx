@@ -1,6 +1,11 @@
 "use client";
 
-/** Спокойный чёрный фон рабочего стола. Без анимации и декоративного света. */
+/** Спокойный фоновый свет: два больших размытых градиента, медленный дрейф. */
 export function AuroraBackdrop() {
-  return <div className="aurora-backdrop" aria-hidden="true" />;
+  return (
+    <div className="aurora-backdrop" aria-hidden="true">
+      <div className="aurora-wash aurora-a" />
+      <div className="aurora-wash aurora-b" />
+    </div>
+  );
 }
