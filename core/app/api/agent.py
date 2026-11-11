@@ -149,6 +149,8 @@ async def _worker_out(session, worker, *, details=False):
 
 
 async def _run_out(session: AsyncSession, run: AgentRun) -> AgentRunOut:
+    from app.services import pentest_workers
+    await pentest_workers.settle_finished(session, run.id)
     steps = await session.scalars(
         select(AgentStep).where(AgentStep.run_id == run.id).order_by(AgentStep.ordinal, AgentStep.created_at, AgentStep.id)
     )
@@ -162,6 +164,20 @@ async def _run_out(session: AsyncSession, run: AgentRun) -> AgentRunOut:
         item = await _worker_out(session, w)
         # Polling the run should not repeatedly ship independent tool transcripts.
         item.messages = [m for m in (w.messages or []) if m.get('kind') == 'chat' or m.get('role') == 'assistant'] if w.role == 'lead' else []
+        out.workers.append(item)
+    return out
+
+
+async def _run_index(session: AsyncSession, run: AgentRun) -> AgentRunOut:
+    """Chat list: identities and worker status, without transcripts."""
+    out = AgentRunOut.model_validate(run)
+    out.steps = []
+    out.workers = []
+    for worker in await session.scalars(select(AgentWorker).where(AgentWorker.run_id == run.id).order_by(AgentWorker.created_at)):
+        item = WorkerOut.model_validate(worker)
+        item.messages = []
+        item.reasoning = ''
+        item.has_reasoning = False
         out.workers.append(item)
     return out
 
@@ -249,6 +265,7 @@ async def create_run(
 @router.get("/engagements/{eid}/agent/runs", response_model=list[AgentRunOut])
 async def list_runs(
     eid: str,
+    view: str = Query(default="full"),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[AgentRunOut]:
@@ -256,7 +273,8 @@ async def list_runs(
     runs = await session.scalars(
         select(AgentRun).where(AgentRun.engagement_id == eid).order_by(AgentRun.created_at.desc())
     )
-    return [await _run_out(session, r) for r in runs]
+    present = _run_index if view == "index" else _run_out
+    return [await present(session, r) for r in runs]
 
 
 @router.get("/agent/runs/{rid}", response_model=AgentRunOut)
@@ -841,7 +859,9 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
             raise HTTPException(status_code=409, detail='В этом чате ещё работают воркеры')
         from app.services import pentest_checkpoints
         await pentest_checkpoints.assert_resumable(session, leader)
-        leader.messages = [*(leader.messages or []), {'role': 'user', 'content': body.content, 'kind': 'chat'}][-48:]
+        leader.messages = [*(leader.messages or []), {
+            'role': 'user', 'content': body.content, 'kind': 'chat', 'at': datetime.now(UTC).isoformat(),
+        }][-48:]
         leader.status, leader.error = 'queued', None
         if body.model:
             leader.model = await _pick_model(session, user, body.model)

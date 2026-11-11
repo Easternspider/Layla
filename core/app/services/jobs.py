@@ -215,8 +215,12 @@ async def _finish(maker, job_id: str, status: str, error: str | None = None) -> 
                 summary_run = worker.run_id
                 await session.execute(update(AgentStep).where(AgentStep.worker_id == worker.id,
                     AgentStep.status == "awaiting_approval").values(status="denied"))
-                await session.execute(update(AgentStep).where(AgentStep.worker_id == worker.id,
-                    AgentStep.status == "running").values(status="failed", output="Исполнение прервано. Состояние удалённого процесса нужно проверить на attackbox."))
+                if status == "done":
+                    await session.execute(update(AgentStep).where(AgentStep.worker_id == worker.id,
+                        AgentStep.status == "running").values(status="done"))
+                else:
+                    await session.execute(update(AgentStep).where(AgentStep.worker_id == worker.id,
+                        AgentStep.status == "running").values(status="failed", output="Исполнение прервано. Состояние удалённого процесса нужно проверить на attackbox."))
         if job.kind == "pentest.worker_summary":
             summary_eid = (job.result or {}).get("engagement_id")
         if status == "done":

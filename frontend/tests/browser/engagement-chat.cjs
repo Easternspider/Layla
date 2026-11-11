@@ -47,7 +47,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   // Delay all history refreshes until after follow-up: POST must seed the chat itself.
   let releasePoll;
   const pollGate=new Promise(resolve=>{releasePoll=resolve;});
-  await page.route(`**/api/engagements/${created.id}/agent/runs`,async route=>{await pollGate;await route.continue().catch(()=>{});});
+  await page.route(`**/api/engagements/${created.id}/agent/runs*`,async route=>{await pollGate;await route.continue().catch(()=>{});});
   let posts=[];
   await page.route('**/agent/chat',async route=>{
    posts.push({url:route.request().url(),body:route.request().postDataJSON()});
@@ -76,7 +76,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(posts.length,2);
   assert.equal(posts[1].body.run_id,newRun,'follow-up silently created another chat');
   assert.equal(await page.getByLabel('История пентест-чатов').inputValue(),newRun);
-  releasePoll(); await page.unroute(`**/api/engagements/${created.id}/agent/runs`);
+  releasePoll(); await page.unroute(`**/api/engagements/${created.id}/agent/runs*`);
   const freshRuns=await(await context.request.get(base+`/api/engagements/${created.id}/agent/runs`)).json();
   assert.equal(freshRuns.length,1);
   assert.equal((await(await context.request.get(base+`/api/engagements/${old.id}/agent/runs`)).json()).length,1);
