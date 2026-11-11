@@ -26,6 +26,9 @@ ORPHAN_GRACE = timedelta(seconds=20)
 
 
 def public_error(exc: BaseException) -> str:
+    from app.services.provider_errors import is_unread_stream, visible_failure
+    if is_unread_stream(exc):
+        return visible_failure(exc)[:1500]
     if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
         return "Превышено время ожидания. Уже выполненные изменения сохранены."
     if isinstance(exc, httpx.HTTPStatusError):

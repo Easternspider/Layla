@@ -16,8 +16,6 @@ from app.services.provider_client import _headers, _is_anthropic_native, endpoin
 from app.services.provider_errors import (
     OutputLimitError,
     ProviderError,
-    classify_rejection,
-    http_error,
     provider_message,
     transient_payload,
 )
@@ -215,14 +213,8 @@ async def stream_turn(provider, key, model: str, messages: list[dict], tools: li
             "POST", url, headers=_headers(provider, key), json=payload
         ) as resp:
             if resp.is_error:
-                body = (await resp.aread())[:4000].decode("utf-8", "replace")
-                # Полная причина — в лог сервера (docker compose logs layla-core).
-                logger.warning("Провайдер %s отклонил запрос к %s: HTTP %s %s", getattr(provider, "name", ""),
-                               model, resp.status_code, provider_message(body, 1000, raw=True, secret=key))
-                mismatch = classify_rejection(resp.status_code, body)
-                if mismatch:
-                    raise mismatch
-                raise http_error(resp.status_code, body, resp.headers, tools=bool(tools), secret=key)
+                from app.services.provider_client import _reject_stream
+                await _reject_stream(resp, secret=key, tools=bool(tools))
             async for line in resp.aiter_lines():
                 size += len(line.encode("utf-8"))
                 if size > MAX_TURN_BYTES:

@@ -253,6 +253,54 @@ _TOKEN_LIMIT = re.compile(
 )
 
 
+def buffered_text(response) -> str:
+    """Уже прочитанное тело. .text у потока без read() бросает ResponseNotRead."""
+    raw = getattr(response, "_content", None)
+    if not isinstance(raw, (bytes, bytearray)):
+        return ""
+    return bytes(raw)[:4000].decode("utf-8", "replace")
+
+
+def _chain(exc: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def is_unread_stream(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.ResponseNotRead):
+        return True
+    text = str(exc)
+    return "streaming response content" in text and "read()" in text
+
+
+def visible_failure(exc: BaseException) -> str:
+    """Текст для чата. Служебную ошибку непрочитанного потока заменяем причиной провайдера."""
+    if not is_unread_stream(exc):
+        return str(exc)[:1500]
+    response = None
+    for item in _chain(exc):
+        found = getattr(item, "response", None)
+        if found is not None:
+            response = found
+            break
+    if response is None:
+        return "Провайдер оборвал ответ и не прислал причину."
+    body = buffered_text(response)
+    if body.strip():
+        message = str(http_error(getattr(response, "status_code", 0) or 0, body, getattr(response, "headers", None)))
+        if not is_unread_stream(RuntimeError(message)):
+            return message
+    code = getattr(response, "status_code", None)
+    phrase = (getattr(response, "reason_phrase", "") or "").strip()
+    if code:
+        return f"Провайдер отклонил запрос (HTTP {code}{(' ' + phrase) if phrase else ''})."
+    return "Провайдер оборвал ответ и не прислал причину."
+
+
 def is_token_limit(exc: BaseException) -> bool:
     if isinstance(exc, OutputLimitError):
         return True
@@ -261,12 +309,8 @@ def is_token_limit(exc: BaseException) -> bool:
     text = str(exc)
     response = getattr(exc, "response", None)
     if response is not None:
-        try:
-            text += " " + response.text
-        except httpx.ResponseNotRead:
-            # Потоковый ответ ещё не прочитан: причина уже есть в тексте исключения
-            # или её снимут до raise_for_status. Не подменяем отказ провайдера этой ошибкой.
-            pass
+        # Нельзя трогать .text: у потока без read() это ResponseNotRead и она подменяет отказ.
+        text += " " + buffered_text(response)
     return bool(_CONTEXT.search(text) or _TOKEN_LIMIT.search(text)
                 or (_MAX_TOKENS.search(text) and any(word in text.lower() for word in _TOO_LARGE_WORDS)))
 
@@ -288,5 +332,5 @@ async def retry_request(request, *, on_retry=None, timeout=None):
             delay = retry_delay(exc, attempt + 1)
             if on_retry:
                 await on_retry({"attempt": attempt + 1, "max": len(RETRY_DELAYS), "delay": delay,
-                                "error": str(exc)[:400]})
+                                "error": visible_failure(exc)[:400]})
             await asyncio.sleep(delay)

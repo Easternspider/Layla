@@ -4,7 +4,7 @@ import json
 import httpx
 
 from app.services.grok_oauth import BASE_URL
-from app.services.provider_errors import OutputLimitError, ProviderError, http_error
+from app.services.provider_errors import OutputLimitError, ProviderError
 
 
 def payload(model, messages, tools, caps, *, system_as_instructions=False):
@@ -87,8 +87,8 @@ async def stream_turn(provider, key, model, messages, tools, caps=None, *, base_
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
         async with client.stream("POST", base + "/responses", headers=headers, json=body) as response:
             if response.is_error:
-                text = (await response.aread())[:4000].decode("utf-8", "replace")
-                raise http_error(response.status_code, text, response.headers, tools=bool(tools), secret=secret)
+                from app.services.provider_client import _reject_stream
+                await _reject_stream(response, secret=secret, tools=bool(tools))
             async for line in response.aiter_lines():
                 size += len(line.encode())
                 if size > 4_000_000:

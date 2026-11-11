@@ -264,15 +264,21 @@ async def list_models(provider: Provider, key: str | None) -> list[str]:
     return names
 
 
-async def _reject_stream(resp, *, secret: str | None = None):
+async def _reject_stream(resp, *, secret: str | None = None, tools: bool = False):
     """Ошибка HTTP в потоке: тело надо прочитать, иначе httpx запрещает .text."""
-    body = (await resp.aread())[:4000].decode("utf-8", "replace")
+    try:
+        raw = await resp.aread()
+    except httpx.HTTPError:
+        raw = getattr(resp, "_content", b"") or b""
+    if not isinstance(raw, (bytes, bytearray)):
+        raw = b""
+    body = bytes(raw)[:4000].decode("utf-8", "replace")
     from app.services.provider_errors import classify_rejection, http_error
     logger.warning("Провайдер отклонил поток: HTTP %s %s", resp.status_code, body[:500])
     mismatch = classify_rejection(resp.status_code, body)
     if mismatch:
         raise mismatch
-    raise http_error(resp.status_code, body, resp.headers, secret=secret)
+    raise http_error(resp.status_code, body, resp.headers, tools=tools, secret=secret)
 
 
 async def stream_chat(
@@ -418,5 +424,5 @@ async def stream_chat_with_retry(provider, key, model, messages):
                 yield "retract", shown
             delay = provider_errors.retry_delay(exc, attempt + 1)
             yield "retry", {"attempt": attempt + 1, "max": len(provider_errors.RETRY_DELAYS), "delay": delay,
-                            "error": str(exc)[:400]}
+                            "error": provider_errors.visible_failure(exc)[:400]}
             await asyncio.sleep(delay)

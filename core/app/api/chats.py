@@ -78,6 +78,7 @@ from app.services import (
 )
 from app.services import places
 from app.services.auth import get_current_user
+from app.services.provider_errors import visible_failure
 
 
 def _drop_tail(text: str, count: int) -> str:
@@ -796,7 +797,7 @@ async def send_message(
             completed = True
         except Exception as exc:  # noqa: BLE001 — SSE must terminate with a saved partial response
             stream_error = (
-                str(exc)
+                visible_failure(exc)
                 if isinstance(exc, RuntimeError)
                 else "Не удалось завершить ответ провайдера. Попробуйте продолжить диалог."
             )

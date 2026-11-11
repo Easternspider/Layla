@@ -74,15 +74,36 @@ def _deny(status, message, **extra):
 # --- Причина отказа -----------------------------------------------------------
 
 def test_unread_stream_body_does_not_hide_the_provider_error():
-    from app.services.provider_errors import is_token_limit
+    from app.services.provider_errors import is_token_limit, visible_failure
 
-    response = httpx.Response(402)
+    response = httpx.Response(402, json={"error": {"message": "Insufficient credits"}})
     request = httpx.Request("POST", "http://p/v1/chat/completions")
-    exc = httpx.HTTPStatusError("nope", request=request, response=response)
+    status = httpx.HTTPStatusError("nope", request=request, response=response)
     # Имитация потока: тела нет, .text бросает ResponseNotRead.
     if hasattr(response, "_content"):
         del response._content
-    assert is_token_limit(exc) is False
+    assert is_token_limit(status) is False
+    unread = httpx.ResponseNotRead()
+    unread.__context__ = status
+    shown = visible_failure(unread)
+    assert "read()" not in shown
+    assert "402" in shown
+
+
+def test_read_stream_body_is_the_provider_reason():
+    from app.services import jobs
+    from app.services.provider_errors import visible_failure
+
+    response = httpx.Response(402, json={"error": {"message": "Insufficient credits"}})
+    request = httpx.Request("POST", "http://p/v1/chat/completions")
+    status = httpx.HTTPStatusError("nope", request=request, response=response)
+    unread = httpx.ResponseNotRead()
+    unread.__context__ = status
+    shown = visible_failure(unread)
+    assert "Insufficient credits" in shown
+    assert "read()" not in shown
+    assert "Insufficient credits" in jobs.public_error(unread)
+    assert "read()" not in jobs.public_error(unread)
 
 
 @pytest.mark.asyncio
@@ -90,7 +111,11 @@ async def test_stream_http_error_names_the_provider_reason(monkeypatch):
     from app.services.provider_errors import ProviderError
 
     def handler(request):
-        return httpx.Response(402, json={"error": {"message": "Insufficient credits"}})
+        return httpx.Response(
+            402,
+            headers={"content-type": "application/json"},
+            stream=httpx.ByteStream(b'{"error": {"message": "Insufficient credits"}}'),
+        )
 
     monkeypatch.setattr(provider_client.httpx, "AsyncClient",
                         lambda **kw: _REAL_CLIENT(transport=httpx.MockTransport(handler), **kw))
@@ -105,6 +130,50 @@ async def test_stream_http_error_names_the_provider_reason(monkeypatch):
             pass
     assert "Insufficient credits" in str(caught.value)
     assert "read()" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_tool_stream_and_retry_name_the_provider_reason(monkeypatch):
+    from app.services import jobs
+    from app.services.provider_errors import ProviderError, retry_request
+
+    def handler(request):
+        return httpx.Response(
+            402,
+            headers={"content-type": "application/json"},
+            stream=httpx.ByteStream(b'{"error": {"message": "Insufficient credits"}}'),
+        )
+
+    monkeypatch.setattr(provider_client.httpx, "AsyncClient",
+                        lambda **kw: _REAL_CLIENT(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(tool_chat.httpx, "AsyncClient",
+                        lambda **kw: _REAL_CLIENT(transport=httpx.MockTransport(handler), **kw))
+
+    class Provider:
+        base_url = "http://p/v1"
+        kind = "openai_compatible"
+        name = "M"
+
+    with pytest.raises(ProviderError) as caught:
+        async for _item in tool_chat.stream_turn(Provider(), "key", "m", [{"role": "user", "content": "hi"}], []):
+            pass
+    assert "Insufficient credits" in str(caught.value)
+    assert "read()" not in str(caught.value)
+
+    seen = []
+
+    async def boom():
+        raise caught.value
+
+    async def notice(info):
+        seen.append(info)
+
+    monkeypatch.setattr("app.services.provider_errors.RETRY_DELAYS", (0,))
+    with pytest.raises(ProviderError):
+        await retry_request(boom, on_retry=notice)
+    assert seen and "Insufficient credits" in seen[0]["error"]
+    assert "read()" not in seen[0]["error"]
+    assert "read()" not in jobs.public_error(caught.value)
 
 
 def test_reason_is_taken_from_provider_json():
