@@ -179,6 +179,17 @@ def provider_message(body: str, limit: int = 300, *, raw: bool = False, secret: 
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
+def _gateway_detail(reason: str) -> str:
+    """«Upstream request failed: fetch failed» ничего не добавляет. Хост и код ошибки оставляем."""
+    text = (reason or "").strip()
+    text = re.sub(r"^upstream request failed\s*:\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(?:fetch failed|failed to fetch)\s*:?\s*", "", text, flags=re.IGNORECASE)
+    text = text.strip(" .")
+    if text.lower() in {"", "fetch failed", "failed to fetch", "upstream request failed"}:
+        return ""
+    return text
+
+
 def http_error(status: int, body: str, headers: httpx.Headers | None = None, *,
                tools: bool = False, secret: str | None = None) -> ProviderError:
     """Понятная ошибка по коду ответа и причине от провайдера."""
@@ -213,12 +224,10 @@ def http_error(status: int, body: str, headers: httpx.Headers | None = None, *,
         message = f"Провайдер не нашёл модель или адрес (HTTP 404){suffix}. Проверьте имя модели и адрес API."
     elif status >= 500:
         if _GATEWAY_MISS.search(f"{reason}\n{body or ''}"):
-            # 502 «fetch failed» шлюз отдаёт, когда сам не открыл соединение с моделью.
-            message = (
-                f"Шлюз не дошёл до модели (HTTP {status}){suffix}. "
-                "Модель этого не подтверждала: оборвалось соединение до неё. "
-                "Если адрес API верный, повтор обычно проходит."
-            )
+            # 502 «fetch failed» шлюз отдаёт, когда сам не открыл соединение. Модель молчала.
+            detail = _gateway_detail(reason)
+            extra = f": {detail}" if detail else ""
+            message = f"Шлюз не дошёл до модели (HTTP {status}){extra}. Ответ модели не получен."
         else:
             message = f"Сбой на стороне провайдера (HTTP {status}){suffix}"
         retry = status not in (501, 505)

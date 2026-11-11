@@ -223,8 +223,10 @@ def test_status_decides_retry_and_key_switch():
     assert not bad.retryable and "Unknown field foo" in str(bad)
     assert http_error(503, "").retryable and not http_error(501, "").retryable
     gateway = http_error(502, '{"error": {"message": "Upstream request failed: fetch failed"}}')
-    assert gateway.retryable and "Шлюз не дошёл до модели" in str(gateway)
-    assert "Сбой на стороне провайдера" not in str(gateway) and "fetch failed" in str(gateway)
+    assert gateway.retryable and str(gateway) == "Шлюз не дошёл до модели (HTTP 502). Ответ модели не получен."
+    assert "fetch failed" not in str(gateway) and "Сбой на стороне провайдера" not in str(gateway)
+    missed = http_error(502, '{"error": {"message": "Upstream request failed: getaddrinfo ENOTFOUND api.bad"}}')
+    assert "ENOTFOUND api.bad" in str(missed) and "Сбой на стороне провайдера" not in str(missed)
     assert "Сбой на стороне провайдера" in str(http_error(502, '{"error": {"message": "Internal server error"}}'))
     crowded = http_error(500, '{"error": {"message": "402 This request would exceed your available credits given your current in-flight requests. Retry after in-flight requests settle, or add credits."}}')
     assert crowded.retryable and not crowded.key_failed and crowded.retry_after == 45
