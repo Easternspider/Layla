@@ -264,6 +264,17 @@ async def list_models(provider: Provider, key: str | None) -> list[str]:
     return names
 
 
+async def _reject_stream(resp, *, secret: str | None = None):
+    """Ошибка HTTP в потоке: тело надо прочитать, иначе httpx запрещает .text."""
+    body = (await resp.aread())[:4000].decode("utf-8", "replace")
+    from app.services.provider_errors import classify_rejection, http_error
+    logger.warning("Провайдер отклонил поток: HTTP %s %s", resp.status_code, body[:500])
+    mismatch = classify_rejection(resp.status_code, body)
+    if mismatch:
+        raise mismatch
+    raise http_error(resp.status_code, body, resp.headers, secret=secret)
+
+
 async def stream_chat(
     provider: Provider, key: str | None, model: str, messages: list[dict]
 ) -> AsyncIterator[tuple[str, str]]:
@@ -300,7 +311,8 @@ async def stream_chat(
             "POST", endpoint(provider, "chat/completions"),
             headers=_headers(provider, key), json=payload,
         ) as resp:
-            resp.raise_for_status()
+            if resp.is_error:
+                await _reject_stream(resp, secret=key)
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue
@@ -346,7 +358,8 @@ async def _stream_anthropic(
             "POST", endpoint(provider, "messages"),
             headers=_headers(provider, key), json=payload,
         ) as resp:
-            resp.raise_for_status()
+            if resp.is_error:
+                await _reject_stream(resp, secret=key)
             async for line in resp.aiter_lines():
                 if not line.startswith("data:"):
                     continue

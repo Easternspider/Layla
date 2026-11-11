@@ -259,8 +259,14 @@ def is_token_limit(exc: BaseException) -> bool:
     if isinstance(exc, CapabilityError) and exc.capability in ("context", "max_output"):
         return True
     text = str(exc)
-    if isinstance(exc, httpx.HTTPStatusError):
-        text += " " + exc.response.text
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            text += " " + response.text
+        except httpx.ResponseNotRead:
+            # Потоковый ответ ещё не прочитан: причина уже есть в тексте исключения
+            # или её снимут до raise_for_status. Не подменяем отказ провайдера этой ошибкой.
+            pass
     return bool(_CONTEXT.search(text) or _TOKEN_LIMIT.search(text)
                 or (_MAX_TOKENS.search(text) and any(word in text.lower() for word in _TOO_LARGE_WORDS)))
 

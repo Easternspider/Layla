@@ -73,6 +73,40 @@ def _deny(status, message, **extra):
 
 # --- Причина отказа -----------------------------------------------------------
 
+def test_unread_stream_body_does_not_hide_the_provider_error():
+    from app.services.provider_errors import is_token_limit
+
+    response = httpx.Response(402)
+    request = httpx.Request("POST", "http://p/v1/chat/completions")
+    exc = httpx.HTTPStatusError("nope", request=request, response=response)
+    # Имитация потока: тела нет, .text бросает ResponseNotRead.
+    if hasattr(response, "_content"):
+        del response._content
+    assert is_token_limit(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_stream_http_error_names_the_provider_reason(monkeypatch):
+    from app.services.provider_errors import ProviderError
+
+    def handler(request):
+        return httpx.Response(402, json={"error": {"message": "Insufficient credits"}})
+
+    monkeypatch.setattr(provider_client.httpx, "AsyncClient",
+                        lambda **kw: _REAL_CLIENT(transport=httpx.MockTransport(handler), **kw))
+
+    class Provider:
+        base_url = "http://p/v1"
+        kind = "openai_compatible"
+        name = "M"
+
+    with pytest.raises(ProviderError) as caught:
+        async for _chunk in provider_client.stream_chat(Provider(), "key", "m", [{"role": "user", "content": "hi"}]):
+            pass
+    assert "Insufficient credits" in str(caught.value)
+    assert "read()" not in str(caught.value)
+
+
 def test_reason_is_taken_from_provider_json():
     assert provider_message('{"error": {"message": "Invalid model"}}') == "Invalid model"
     openrouter = json.dumps({"error": {"message": "Provider returned error", "code": 400, "metadata": {
