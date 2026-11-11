@@ -484,18 +484,23 @@ async def stop_run(
     await session.execute(update(AgentStep).where(AgentStep.run_id == rid,
         AgentStep.status.in_(("awaiting_approval", "ready", "blocked", "failed"))).values(status="denied"))
     run.status = AgentRunStatus.completed
+    workers = list(await session.scalars(select(AgentWorker).where(AgentWorker.run_id == rid,
+        AgentWorker.status.in_(("queued", "running", "awaiting_approval")))))
+    job_ids = []
+    for worker in workers:
+        if worker.job_id:
+            job_ids.append(worker.job_id)
+        worker.status = "cancelled"
+        worker.error = "Воркер остановлен. История и файлы сохранены."
     from app.models.pentest_workbench import EngagementTask
     await session.execute(update(EngagementTask).where(EngagementTask.run_id == rid,
         EngagementTask.status.in_(('pending', 'running'))).values(status='cancelled', result='Чат остановлен оператором'))
     await session.commit()
-    worker_jobs = list(await session.scalars(select(AgentWorker.job_id).where(
-        AgentWorker.run_id == rid, AgentWorker.status.in_(("queued", "running", "awaiting_approval")))))
     summary_id = run.trace_ref
     owner_id, engagement_id = run.owner_id, run.engagement_id
     await session.rollback()
-    for jid in worker_jobs:
-        if jid:
-            await jobs.cancel(jid, maker)
+    for jid in job_ids:
+        await jobs.cancel(jid, maker)
     if summary_id:
         await jobs.cancel(summary_id, maker)
     # setsid-фон на площадке не ловится interrupt'ом — добиваем отдельной командой.
