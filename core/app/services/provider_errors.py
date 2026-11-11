@@ -65,6 +65,11 @@ _IN_FLIGHT_CREDIT = re.compile(
     r"in-flight requests|exceed your available credits",
     re.IGNORECASE,
 )
+# Обрыв fetch у шлюза (OpenRouter, Langfuse, Node undici). Модель при этом ничего не ответила.
+_GATEWAY_MISS = re.compile(
+    r"upstream request failed|fetch failed|econnreset|enotfound|socket hang up|connect timeout",
+    re.IGNORECASE,
+)
 # Всё, похожее на ключ или токен, из текста ошибки убираем.
 _SECRET = re.compile(r"\b(?:sk|pk|rk)-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+|\b[A-Za-z0-9]{32,}\b")
 
@@ -207,7 +212,15 @@ def http_error(status: int, body: str, headers: httpx.Headers | None = None, *,
     elif status == 404:
         message = f"Провайдер не нашёл модель или адрес (HTTP 404){suffix}. Проверьте имя модели и адрес API."
     elif status >= 500:
-        message = f"Сбой на стороне провайдера (HTTP {status}){suffix}"
+        if _GATEWAY_MISS.search(f"{reason}\n{body or ''}"):
+            # 502 «fetch failed» шлюз отдаёт, когда сам не открыл соединение с моделью.
+            message = (
+                f"Шлюз не дошёл до модели (HTTP {status}){suffix}. "
+                "Модель этого не подтверждала: оборвалось соединение до неё. "
+                "Если адрес API верный, повтор обычно проходит."
+            )
+        else:
+            message = f"Сбой на стороне провайдера (HTTP {status}){suffix}"
         retry = status not in (501, 505)
     else:
         what = "запрос с инструментами" if tools else "запрос"
