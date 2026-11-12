@@ -874,9 +874,12 @@ async def agent_chat(eid: str, body: AgentChatCreate, user: User = Depends(get_c
             raise HTTPException(status_code=409, detail='В этом чате ещё работают воркеры')
         from app.services import pentest_checkpoints
         await pentest_checkpoints.assert_resumable(session, leader)
-        leader.messages = [*(leader.messages or []), {
+        # Не обрезаем диалог сырым срезом: trim_messages бережёт реплики оператора и прозовые
+        # ответы Layla, подрезая только служебный шум (результаты инструментов). Сырой [-48:]
+        # терял ранние запросы/ответы и «процесс работы» при продолжении чата.
+        leader.messages = pentest_checkpoints.trim_messages([*(leader.messages or []), {
             'role': 'user', 'content': body.content, 'kind': 'chat', 'at': datetime.now(UTC).isoformat(),
-        }][-48:]
+        }])
         leader.status, leader.error = 'queued', None
         if body.model:
             leader.model = await _pick_model(session, user, body.model)
