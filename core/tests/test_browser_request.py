@@ -47,6 +47,8 @@ async def test_browser_exchange_impersonates_chrome_and_stays_in_scope(monkeypat
     assert captured['impersonate'] == 'chrome'
     assert captured['redirects'] is False
     assert captured['headers']['Content-Type'] == 'application/json'
+    assert captured['headers']['User-Agent'].startswith('Mozilla/5.0')
+    assert 'Chrome/' in captured['headers']['User-Agent']
     assert result['status'] == 400 and 'Disposable' in result['body']
     with pytest.raises(ValueError):
         await web_research.browser_exchange('GET', 'https://other.test/', '', '', '', ['target.test'], [])

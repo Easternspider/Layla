@@ -10,6 +10,23 @@ const PRESETS = [
   { v: "constellation", l: "Constellation" },
 ];
 const ROLES = ["explorer", "reviewer", "implementer"];
+type PentestModule = "accounts" | "browser" | "strict_methodology" | "parallel_workers" | "auto_summaries" | "playbook";
+const DEFAULT_MODULES: Record<PentestModule, boolean> = {
+  accounts: true,
+  browser: true,
+  strict_methodology: true,
+  parallel_workers: true,
+  auto_summaries: true,
+  playbook: true,
+};
+const PENTEST_MODULES: { key: PentestModule; label: string; description: string }[] = [
+  { key: "accounts", label: "Регистрация и внешние ящики", description: "Создание одной учётной записи и чтение писем подтверждения." },
+  { key: "browser", label: "Браузерные запросы", description: "HTTPS-запросы к целям из scope с отпечатком Chrome." },
+  { key: "strict_methodology", label: "Жёсткие алгоритмы", description: "Лестницы техник, бюджет разведки и обязательные проходы." },
+  { key: "parallel_workers", label: "Параллельные воркеры", description: "До трёх независимых задач и общая очередь проверок." },
+  { key: "auto_summaries", label: "Автоматические сводки", description: "Итоговый ответ после завершения независимых воркеров." },
+  { key: "playbook", label: "Playbook", description: "Справочник техник, который агент читает по запросу." },
+];
 
 export function AgentSettings() {
   const qc = useQueryClient();
@@ -25,6 +42,9 @@ export function AgentSettings() {
   const [subMin, setSubMin] = useState(0);
   const [diagCmd, setDiagCmd] = useState("");
   const [diagAuto, setDiagAuto] = useState(false);
+  const [context, setContext] = useState<Record<string, unknown>>({});
+  const [modules, setModules] = useState<Record<PentestModule, boolean>>(DEFAULT_MODULES);
+  const [playbook, setPlaybook] = useState("");
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -36,17 +56,25 @@ export function AgentSettings() {
     setSubMin(Number(data.budgets?.subagent_minutes || 0));
     setDiagCmd(String((data.diagnostics as Record<string, unknown>)?.command || ""));
     setDiagAuto(Boolean((data.diagnostics as Record<string, unknown>)?.run_after_edits));
+    const savedContext = (data.context || {}) as Record<string, unknown>;
+    const pentest = (savedContext.pentest || {}) as Record<string, unknown>;
+    setContext(savedContext);
+    setModules({ ...DEFAULT_MODULES, ...((pentest.modules || {}) as Record<string, boolean>) });
+    setPlaybook(typeof pentest.playbook === "string" ? pentest.playbook : "");
   }, [data]);
 
   const save = useMutation({
-    mutationFn: () =>
-      api.put("/agent/config", {
+    mutationFn: () => {
+      const pentest: Record<string, unknown> = { modules };
+      if (playbook.trim()) pentest.playbook = playbook;
+      return api.put("/agent/config", {
         preset,
         role_models: roleModels,
         budgets: { tokens_per_turn: tokens, cost_usd: cost, subagent_minutes: subMin },
         diagnostics: { command: diagCmd, run_after_edits: diagAuto },
-        context: {},
-      }),
+        context: { ...context, pentest },
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["agent-config"] });
       setSaved(true);
@@ -121,6 +149,46 @@ export function AgentSettings() {
           <input type="checkbox" checked={diagAuto} onChange={(e) => setDiagAuto(e.target.checked)} />
           Запускать автоматически после правок
         </label>
+      </section>
+
+      <section className="mb-5">
+        <div className="mb-1 text-sm font-semibold">Модули пентеста</div>
+        <p className="mb-2 text-xs text-neutral-500">
+          Отключённый модуль скрыт от модели и отклоняется сервером до исполнения.
+        </p>
+        <div className="space-y-2">
+          {PENTEST_MODULES.map((m) => (
+            <label key={m.key} className="flex items-start gap-2 text-xs text-neutral-400">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={modules[m.key]}
+                onChange={(e) => setModules({ ...modules, [m.key]: e.target.checked })}
+              />
+              <span>
+                <span className="block text-neutral-200">{m.label}</span>
+                {m.description}
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="mb-5">
+        <div className="mb-1 text-sm font-semibold">Playbook</div>
+        <p className="mb-2 text-xs text-neutral-500">
+          {modules.playbook
+            ? "Справочник, который агент читает действием read_playbook. Пустой текст означает стандартный playbook."
+            : "Модуль отключён: агент не читает playbook, текст сохранится для следующего включения."}
+        </p>
+        <textarea
+          value={playbook}
+          onChange={(e) => setPlaybook(e.target.value)}
+          rows={10}
+          spellCheck={false}
+          placeholder="Текст playbook (Markdown). Оставьте пустым для стандартного."
+          className="w-full resize-y rounded-md border border-ink-700 bg-ink-800 px-2 py-1.5 font-mono text-xs"
+        />
       </section>
 
       <button onClick={() => save.mutate()}
